@@ -7,6 +7,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [11.4.5]
+
+- Fix: fixes permission issues with the installer's jre
+
 ## [11.4.4]
 
 - Fix: adds the otel-javaagent to the installed distribution
