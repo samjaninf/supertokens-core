@@ -44,6 +44,8 @@ import io.supertokens.webserver.api.accountlinking.CreatePrimaryUserAPI;
 import io.supertokens.webserver.api.accountlinking.LinkAccountsAPI;
 import io.supertokens.webserver.api.accountlinking.UnlinkAccountAPI;
 import io.supertokens.webserver.api.bulkimport.BulkImportAPI;
+import io.supertokens.webserver.api.migration.MigrationBackfillProgressAPI;
+import io.supertokens.webserver.api.migration.MigrationModeAPI;
 import io.supertokens.webserver.api.bulkimport.CountBulkImportUsersAPI;
 import io.supertokens.webserver.api.bulkimport.DeleteBulkImportUserAPI;
 import io.supertokens.webserver.api.bulkimport.ImportUserAPI;
@@ -457,6 +459,9 @@ public class Webserver extends ResourceDistributor.SingletonResource {
         addAPI(new ListCredentialsAPI(main));
         addAPI(new GetCredentialAPI(main));
         addAPI(new UpdateUserEmailAPI(main));
+
+        addAPI(new MigrationModeAPI(main));
+        addAPI(new MigrationBackfillProgressAPI(main));
 
         StandardContext context = tomcatReference.getContext();
         Tomcat tomcat = tomcatReference.getTomcat();

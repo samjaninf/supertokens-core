@@ -4297,6 +4297,11 @@ public class Start
     }
 
     @Override
+    public void setMigrationMode(MigrationMode mode) {
+        SQLiteConfig.setMigrationModeForTesting(mode);
+    }
+
+    @Override
     public int getBackfillPendingUsersCount(AppIdentifier appIdentifier) {
         return 0; // InMemoryDB always has all data in sync
     }
