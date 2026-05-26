@@ -39,59 +39,98 @@ import io.supertokens.pluginInterface.multitenancy.TenantConfig;
 import io.supertokens.pluginInterface.multitenancy.TenantIdentifier;
 import io.supertokens.pluginInterface.multitenancy.exceptions.TenantOrAppNotFoundException;
 import io.supertokens.pluginInterface.sqlStorage.SQLStorage;
+import io.supertokens.pluginInterface.sqlStorage.TransactionConnection;
 import io.supertokens.storageLayer.StorageLayer;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.Callable;
 
-public class ProcessBulkUsersImportWorker implements Runnable {
+public class ProcessBulkUsersImportWorker implements Callable<Boolean> {
 
     private final Map<String, SQLStorage> userPoolToStorageMap = new HashMap<>();
     private final Main main;
     private final AppIdentifier app;
     private final BulkImportSQLStorage bulkImportSQLStorage;
-    private final BulkImportUserUtils bulkImportUserUtils;
-    private final List<BulkImportUser> usersToProcess;
+    private final String[] allUserRoles;
+    private final int chunkSize;
 
-    ProcessBulkUsersImportWorker(Main main, AppIdentifier app, List<BulkImportUser> usersToProcess, BulkImportSQLStorage bulkImportSQLStorage, BulkImportUserUtils bulkImportUserUtils){
+    ProcessBulkUsersImportWorker(Main main, AppIdentifier app, int chunkSize,
+                                 BulkImportSQLStorage bulkImportSQLStorage,
+                                 String[] allUserRoles) {
         this.main = main;
         this.app = app;
-        this.usersToProcess = usersToProcess;
+        this.chunkSize = chunkSize;
         this.bulkImportSQLStorage = bulkImportSQLStorage;
-        this.bulkImportUserUtils = bulkImportUserUtils;
+        this.allUserRoles = allUserRoles;
     }
 
+    /**
+     * Claims a chunk of users with FOR UPDATE inside a baseTenantStorage transaction, processes them,
+     * then deletes (or marks as error) within the same transaction — so the row-level locks are held
+     * from claim through final status update.
+     *
+     * @return true if any users were found and processed, false if the queue was empty
+     */
     @Override
-    public void run() {
+    public Boolean call() {
+        // Fresh instance per invocation: allExternalUserIds must not bleed across retry rounds.
+        BulkImportUserUtils bulkImportUserUtils = new BulkImportUserUtils(allUserRoles);
+
+        // Pre-initialize proxy storages BEFORE acquiring the outer transaction connection.
+        // getAllProxyStoragesForApp calls Multitenancy.getAllTenantsForApp, which needs a
+        // base-pool connection. If done inside startTransaction, workers deadlock: the outer
+        // transaction already holds one connection, and with parallelism > pool-size all
+        // workers block each other waiting for a second connection from the exhausted pool.
+        Storage[] allStoragesForApp;
         try {
-            processMultipleUsers(app, usersToProcess, bulkImportUserUtils, bulkImportSQLStorage);
-        } catch (TenantOrAppNotFoundException | DbInitException | IOException | StorageQueryException e) {
+            allStoragesForApp = getAllProxyStoragesForApp(main, app);
+        } catch (StorageTransactionLogicException e) {
             throw new RuntimeException(e);
+        }
+
+        try {
+            return bulkImportSQLStorage.startTransaction(baseCon -> {
+                try {
+                    List<BulkImportUser> users = bulkImportSQLStorage
+                            .getBulkImportUsersAndChangeStatusToProcessing_Transaction(app, chunkSize, baseCon);
+                    if (users == null || users.isEmpty()) {
+                        return false;
+                    }
+                    processMultipleUsers(app, users, bulkImportUserUtils, allStoragesForApp,
+                            bulkImportSQLStorage, baseCon);
+                    return true;
+                } catch (TenantOrAppNotFoundException | DbInitException | IOException | StorageQueryException e) {
+                    throw new StorageTransactionLogicException(e);
+                }
+            });
+        } catch (StorageTransactionLogicException | StorageQueryException e) {
+            throw new RuntimeException(e);
+        } finally {
+            try {
+                closeAllProxyStorages();
+            } catch (StorageQueryException ignored) {
+            }
         }
     }
 
     private void processMultipleUsers(AppIdentifier appIdentifier, List<BulkImportUser> users,
                                       BulkImportUserUtils bulkImportUserUtils,
-                                      BulkImportSQLStorage baseTenantStorage)
-            throws TenantOrAppNotFoundException, StorageQueryException, IOException,
-            DbInitException {
-        BulkImportUser user = null;
+                                      Storage[] allStoragesForApp,
+                                      BulkImportSQLStorage baseTenantStorage,
+                                      TransactionConnection baseCon)
+            throws TenantOrAppNotFoundException, StorageQueryException, IOException, DbInitException {
         try {
             Logging.debug(main, appIdentifier.getAsPublicTenantIdentifier(),
                     "Processing bulk import users: " + users.size());
-            final Storage[] allStoragesForApp = getAllProxyStoragesForApp(main, appIdentifier);
             int userIndexPointer = 0;
             List<BulkImportUser> validUsers = new ArrayList<>();
             Map<String, Exception> validationErrorsBeforeActualProcessing = new HashMap<>();
-            while(userIndexPointer < users.size()) {
-                user = users.get(userIndexPointer);
+            while (userIndexPointer < users.size()) {
+                BulkImportUser user = users.get(userIndexPointer);
                 if (Main.isTesting && Main.isTesting_skipBulkImportUserValidationInCronJob) {
-                    // Skip validation when the flag is enabled during testing
-                    // Skip validation if it's a retry run. This already passed validation. A revalidation triggers
-                    // an invalid external user id already exists validation error - which is not true!
                     validUsers.add(user);
                 } else {
-                    // Validate the user
                     try {
                         validUsers.add(bulkImportUserUtils.createBulkImportUserFromJSON(main, appIdentifier,
                                 user.toJsonObject(), BulkImportUserUtils.IDMode.READ_STORED));
@@ -100,20 +139,19 @@ public class ProcessBulkUsersImportWorker implements Runnable {
                                 String.valueOf(exception.errors)));
                     }
                 }
-                userIndexPointer+=1;
+                userIndexPointer += 1;
             }
 
-            if(!validationErrorsBeforeActualProcessing.isEmpty()) {
+            if (!validationErrorsBeforeActualProcessing.isEmpty()) {
                 throw new BulkImportBatchInsertException("Invalid input data", validationErrorsBeforeActualProcessing);
             }
-            // Since all the tenants of a user must share the storage, we will just use the
-            // storage of the first tenantId of the first loginMethod
+
             Map<SQLStorage, List<BulkImportUser>> partitionedUsers = partitionUsersByStorage(appIdentifier, validUsers);
 
-            for(SQLStorage bulkImportProxyStorage : partitionedUsers.keySet()) {
-                boolean shouldRetryImmediatley = true;
-                while (shouldRetryImmediatley) {
-                    shouldRetryImmediatley = bulkImportProxyStorage.startTransaction(con -> {
+            for (SQLStorage bulkImportProxyStorage : partitionedUsers.keySet()) {
+                boolean shouldRetryImmediately = true;
+                while (shouldRetryImmediately) {
+                    shouldRetryImmediately = bulkImportProxyStorage.startTransaction(con -> {
                         try {
                             BulkImport.processUsersImportSteps(main, appIdentifier, bulkImportProxyStorage,
                                     partitionedUsers.get(bulkImportProxyStorage),
@@ -121,31 +159,19 @@ public class ProcessBulkUsersImportWorker implements Runnable {
 
                             bulkImportProxyStorage.commitTransactionForBulkImportProxyStorage();
 
+                            // Delete within the outer baseTenantStorage transaction — the FOR UPDATE lock
+                            // is held on baseCon until it commits, preventing concurrent re-claiming.
                             String[] toDelete = new String[validUsers.size()];
                             for (int i = 0; i < validUsers.size(); i++) {
                                 toDelete[i] = validUsers.get(i).id;
                             }
-
-                            while (true){
-                                try {
-                                    List<String> deletedIds = baseTenantStorage.deleteBulkImportUsers(appIdentifier,
-                                            toDelete);
-                                    break;
-                                } catch (Exception e) {
-                                    // ignore and retry delete. The import transaction is already committed, the delete should happen no matter what
-                                    Logging.debug(main, app.getAsPublicTenantIdentifier(),
-                                            "Exception while deleting bulk import users: " + e.getMessage());
-                                }
-                            }
+                            baseTenantStorage.deleteBulkImportUsers_Transaction(appIdentifier, toDelete, baseCon);
                         } catch (StorageTransactionLogicException | StorageQueryException e) {
-                            // We need to rollback the transaction manually because we have overridden that in the proxy
-                            // storage
                             bulkImportProxyStorage.rollbackTransactionForBulkImportProxyStorage();
                             if (isBulkImportTransactionRolledBackIsTheRealCause(e)) {
                                 return true;
-                                //@see BulkImportTransactionRolledBackException for explanation
                             }
-                            handleProcessUserExceptions(app, validUsers, e, baseTenantStorage);
+                            handleProcessUserExceptions(app, validUsers, e, baseTenantStorage, baseCon);
                         }
                         return false;
                     });
@@ -156,49 +182,43 @@ public class ProcessBulkUsersImportWorker implements Runnable {
                     "Error while processing bulk import users: " + e.getMessage(), true, e);
             throw new RuntimeException(e);
         } catch (BulkImportBatchInsertException insertException) {
-            handleProcessUserExceptions(app, users, insertException, baseTenantStorage);
+            handleProcessUserExceptions(app, users, insertException, baseTenantStorage, baseCon);
         } catch (Exception e) {
             Logging.error(main, app.getAsPublicTenantIdentifier(),
                     "Error while processing bulk import users: " + e.getMessage(), true, e);
             throw e;
-        } finally {
-            closeAllProxyStorages(); //closing it here to reuse the existing connection with all the users
         }
     }
 
     private boolean isBulkImportTransactionRolledBackIsTheRealCause(Throwable exception) {
-        if(exception instanceof BulkImportTransactionRolledBackException){
+        if (exception instanceof BulkImportTransactionRolledBackException) {
             return true;
-        } else if(exception.getCause()!=null){
+        } else if (exception.getCause() != null) {
             return isBulkImportTransactionRolledBackIsTheRealCause(exception.getCause());
         }
         return false;
     }
 
-    private void handleProcessUserExceptions(AppIdentifier appIdentifier, List<BulkImportUser> usersBatch, Exception e,
-                                             BulkImportSQLStorage baseTenantStorage)
+    private void handleProcessUserExceptions(AppIdentifier appIdentifier, List<BulkImportUser> usersBatch,
+                                             Exception e, BulkImportSQLStorage baseTenantStorage,
+                                             TransactionConnection baseCon)
             throws StorageQueryException {
-        // Java doesn't allow us to reassign local variables inside a lambda expression
-        // so we have to use an array.
         String[] errorMessage = { e.getMessage() };
         Map<String, String> bulkImportUserIdToErrorMessage = new HashMap<>();
 
         switch (e) {
             case StorageTransactionLogicException exception -> {
-                // If the exception is due to a StorageQueryException, we want to retry the entry after sometime instead
-                // of marking it as FAILED. We will return early in that case.
                 if (exception.actualException instanceof StorageQueryException) {
                     Logging.error(main, null,
                             "We got an StorageQueryException while processing a bulk import user entry. It will be " +
-                                    "retried again. Error Message: " +
-                                    e.getMessage(), true);
+                                    "retried again. Error Message: " + e.getMessage(), true);
                     return;
                 }
                 if (exception.actualException instanceof BulkImportBatchInsertException) {
-                    handleBulkImportException(usersBatch, (BulkImportBatchInsertException) exception.actualException,
+                    handleBulkImportException(usersBatch,
+                            (BulkImportBatchInsertException) exception.actualException,
                             bulkImportUserIdToErrorMessage);
                 } else {
-                    //fail the whole batch
                     errorMessage[0] = exception.actualException.getMessage();
                     for (BulkImportUser user : usersBatch) {
                         bulkImportUserIdToErrorMessage.put(user.id, errorMessage[0]);
@@ -214,40 +234,37 @@ public class ProcessBulkUsersImportWorker implements Runnable {
             default -> {
                 Logging.error(main, null,
                         "We got an error while processing a bulk import user entry. It will be " +
-                                "retried again. Error Message: " +
-                                e.getMessage(), true);
+                                "retried again. Error Message: " + e.getMessage(), true);
             }
         }
 
-        try {
-            baseTenantStorage.startTransaction(con -> {
-                baseTenantStorage.updateMultipleBulkImportUsersStatusToError_Transaction(appIdentifier, con,
-                        bulkImportUserIdToErrorMessage);
-                return null;
-            });
-        } catch (StorageTransactionLogicException e1) {
-            throw new StorageQueryException(e1.actualException);
-        }
+        // Update error status within the outer baseTenantStorage transaction — no nested startTransaction needed.
+        baseTenantStorage.updateMultipleBulkImportUsersStatusToError_Transaction(appIdentifier, baseCon,
+                bulkImportUserIdToErrorMessage);
     }
 
-    private static void handleBulkImportException(List<BulkImportUser> usersBatch, BulkImportBatchInsertException exception,
+    private static void handleBulkImportException(List<BulkImportUser> usersBatch,
+                                                  BulkImportBatchInsertException exception,
                                                   Map<String, String> bulkImportUserIdToErrorMessage) {
         Map<String, Exception> userIndexToError = exception.exceptionByUserId;
-        for(String userid : userIndexToError.keySet()){
+        for (String userid : userIndexToError.keySet()) {
             Optional<BulkImportUser> userWithId = usersBatch.stream()
-                    .filter(bulkImportUser -> userid.equals(bulkImportUser.id) || userid.equals(bulkImportUser.externalUserId)).findFirst();
+                    .filter(bulkImportUser -> userid.equals(bulkImportUser.id)
+                            || userid.equals(bulkImportUser.externalUserId))
+                    .findFirst();
             String id = null;
-            if(userWithId.isPresent()){
-                id =  userWithId.get().id;
+            if (userWithId.isPresent()) {
+                id = userWithId.get().id;
             }
 
-            if(id == null) {
+            if (id == null) {
                 userWithId = usersBatch.stream()
                         .filter(bulkImportUser ->
                                 bulkImportUser.loginMethods.stream()
                                         .map(loginMethod -> loginMethod.superTokensUserId)
-                                        .anyMatch(s -> s!= null && s.equals(userid))).findFirst();
-                if(userWithId.isPresent()){
+                                        .anyMatch(s -> s != null && s.equals(userid)))
+                        .findFirst();
+                if (userWithId.isPresent()) {
                     id = userWithId.get().id;
                 }
             }
@@ -283,7 +300,6 @@ public class ProcessBulkUsersImportWorker implements Runnable {
 
     private synchronized Storage[] getAllProxyStoragesForApp(Main main, AppIdentifier appIdentifier)
             throws StorageTransactionLogicException {
-
         try {
             List<Storage> allProxyStorages = new ArrayList<>();
             TenantConfig[] tenantConfigs = Multitenancy.getAllTenantsForApp(appIdentifier, main);
@@ -309,19 +325,20 @@ public class ProcessBulkUsersImportWorker implements Runnable {
         userPoolToStorageMap.clear();
     }
 
-   private Map<SQLStorage, List<BulkImportUser>> partitionUsersByStorage(AppIdentifier appIdentifier, List<BulkImportUser> users)
-           throws DbInitException, TenantOrAppNotFoundException, InvalidConfigException, IOException {
+    private Map<SQLStorage, List<BulkImportUser>> partitionUsersByStorage(AppIdentifier appIdentifier,
+                                                                           List<BulkImportUser> users)
+            throws DbInitException, TenantOrAppNotFoundException, InvalidConfigException, IOException {
         Map<SQLStorage, List<BulkImportUser>> result = new HashMap<>();
-        for(BulkImportUser user: users) {
+        for (BulkImportUser user : users) {
             TenantIdentifier firstTenantIdentifier = new TenantIdentifier(appIdentifier.getConnectionUriDomain(),
                     appIdentifier.getAppId(), user.loginMethods.getFirst().tenantIds.getFirst());
 
-            SQLStorage bulkImportProxyStorage =  (SQLStorage) getBulkImportProxyStorage(firstTenantIdentifier);
-            if(!result.containsKey(bulkImportProxyStorage)){
+            SQLStorage bulkImportProxyStorage = (SQLStorage) getBulkImportProxyStorage(firstTenantIdentifier);
+            if (!result.containsKey(bulkImportProxyStorage)) {
                 result.put(bulkImportProxyStorage, new ArrayList<>());
             }
             result.get(bulkImportProxyStorage).add(user);
         }
         return result;
-   }
+    }
 }

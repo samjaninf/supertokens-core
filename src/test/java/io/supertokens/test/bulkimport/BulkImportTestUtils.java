@@ -88,7 +88,7 @@ public class BulkImportTestUtils {
                     .add(new LoginMethod(tenants, "thirdparty", random.nextBoolean(), false, currentTimeMillis, email, null, null, null,
                             "thirdPartyId" + i, "thirdPartyUserId" + i, null, io.supertokens.utils.Utils.getUUID()));
             loginMethods.add(generateBulkImportPasswordlessLoginMethod(tenants,
-                    false, random.nextBoolean(), email, random.nextBoolean() ? null : "+36305127731" + i));
+                    false, random.nextBoolean(), email, random.nextBoolean() ? null : "+36305127731" + i, currentTimeMillis));
 
             id = loginMethods.get(0).superTokensUserId;
             users.add(new BulkImportUser(id, externalId, userMetadata, userRoles, totpDevices, loginMethods));
@@ -132,23 +132,23 @@ public class BulkImportTestUtils {
             switch (i % 5) {
                 case 0:
                     loginMethods.add(generateBulkImportPasswordlessLoginMethod(tenants,
-                            false, false, email, "+36305127731" + i));
+                            false, false, email, "+36305127731" + i, currentTimeMillis));
                     break;
                 case 1:
                     loginMethods.add(generateBulkImportPasswordlessLoginMethod(tenants,
-                            false, false, null, "+36305127731" + i));
+                            false, false, null, "+36305127731" + i, currentTimeMillis));
                     break;
                 case 2:
                     loginMethods.add(generateBulkImportPasswordlessLoginMethod(tenants,
-                            false, false, email, null));
+                            false, false, email, null, currentTimeMillis));
                     break;
                 case 3:
                     loginMethods.add(generateBulkImportPasswordlessLoginMethod(tenants,
-                            false, true, null, "+36305127731" + i));
+                            false, true, null, "+36305127731" + i, currentTimeMillis));
                     break;
                 case 4:
                     loginMethods.add(generateBulkImportPasswordlessLoginMethod(tenants,
-                            false, true, email, null));
+                            false, true, email, null, currentTimeMillis));
                     break;
             }
 
@@ -162,9 +162,9 @@ public class BulkImportTestUtils {
                                                                         boolean passwordlessPrimary,
                                                                         boolean passwordlessVerified,
                                                                         String passwordlessEmail,
-                                                                        String passwordlessPhone) {
-        long currentTimeMillis = System.currentTimeMillis();
-        return new LoginMethod(tenants, "passwordless", passwordlessVerified, passwordlessPrimary, currentTimeMillis,
+                                                                        String passwordlessPhone,
+                                                                        long timeJoined) {
+        return new LoginMethod(tenants, "passwordless", passwordlessVerified, passwordlessPrimary, timeJoined,
                 passwordlessEmail, null, null, null,
                 null, null, passwordlessPhone, io.supertokens.utils.Utils.getUUID());
     }

@@ -551,6 +551,9 @@ public class BulkImportFlowTest {
         // after processing finished, make sure every user got processed correctly
         int failedImportedUsersNumber = loadBulkImportUsersCountWithStatus(main,
                 BulkImportStorage.BULK_IMPORT_USER_STATUS.FAILED).get("count").getAsInt();
+        JsonObject failedUsers = loadBulkImportUsersWithStatus(main,
+                BulkImportStorage.BULK_IMPORT_USER_STATUS.FAILED);
+        System.out.println(failedUsers);
         int usersInCore = loadUsersCount(main).get("count").getAsInt();
         assertEquals(NUMBER_OF_USERS_TO_UPLOAD + 1, usersInCore + failedImportedUsersNumber);
         assertEquals(1, failedImportedUsersNumber);
@@ -952,6 +955,9 @@ public class BulkImportFlowTest {
         Utils.setValueInConfig("bulk_migration_parallelism", parallelism);
         //Utils.setValueInConfig("bulk_migration_batch_size", "1000");
         Utils.setValueInConfig("log_level", "DEBUG");
+        // Pool must exceed parallelism so polling API calls aren't starved by the worker threads
+        int parallelismInt = Integer.parseInt(parallelism);
+        Utils.setValueInConfig("postgresql_connection_pool_size", String.valueOf(Math.max(10, parallelismInt + 4)));
 
         // Start with startProcess=false to avoid race condition with feature flag setup
         TestingProcessManager.TestingProcess process = TestingProcessManager.startIsolatedProcess(args, false);

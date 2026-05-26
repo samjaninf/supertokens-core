@@ -49,8 +49,10 @@ public class DatabaseTestHelper {
     private static volatile boolean workerDatabaseInitialized = false;
     private static final Object workerDbLock = new Object();
 
-    // PostgreSQL connection details - read from environment or use defaults
-    private static final String PG_HOST = getConfigValue("TEST_PG_HOST", "pg");
+    // PostgreSQL connection details - read from environment or use defaults.
+    // Default to "localhost" so host-based test runs work without extra env vars;
+    // the Docker MCP container sets TEST_PG_HOST=pg and TEST_PG_PORT=5432 explicitly.
+    private static final String PG_HOST = getConfigValue("TEST_PG_HOST", "localhost");
     private static final String PG_PORT = getConfigValue("TEST_PG_PORT", "5432");
     private static final String PG_USER = getConfigValue("TEST_PG_USER", "root");
     private static final String PG_PASSWORD = getConfigValue("TEST_PG_PASSWORD", "root");

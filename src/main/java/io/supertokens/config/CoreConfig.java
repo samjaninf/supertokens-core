@@ -421,7 +421,14 @@ public class CoreConfig {
     @JsonProperty
     @ConfigDescription("If specified, the supertokens core will load the specified number of users for migrating in " +
             "one single batch. (Default: 8000)")
-    private int bulk_migration_batch_size =  8000;
+    private int bulk_migration_batch_size = 8000;
+
+    @EnvName("BULK_MIGRATION_SLEEP_BETWEEN_ROUNDS_IN_BATCH_MS")
+    @NotConflictingInApp
+    @JsonProperty
+    @ConfigDescription(
+            "If specified, the bulk migration will wait between rounds. To disable it, set it to null. (Default: 1000)")
+    private Integer bulk_migration_sleep_between_rounds_in_batch_ms = 1000;
 
     @EnvName("WEBAUTHN_RECOVER_ACCOUNT_TOKEN_LIFETIME")
     @NotConflictingInApp
@@ -694,6 +701,10 @@ public class CoreConfig {
 
     public int getBulkMigrationBatchSize() {
         return bulk_migration_batch_size;
+    }
+
+    public Integer getBulkMigrationSleepBetweenRoundsInBatchMs() {
+        return bulk_migration_sleep_between_rounds_in_batch_ms;
     }
 
     public String getOtelCollectorConnectionURI() {

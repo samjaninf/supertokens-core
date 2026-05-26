@@ -179,6 +179,10 @@ core_config_version: 0
 # specified number of users for migrating in one single batch.
 # bulk_migration_batch_size:
 
+# (DIFFERENT_ACROSS_APPS | OPTIONAL | Default: 1000) int value. If specified, the bulk migration will wait between
+# rounds. To disable it, set it to null.
+# bulk_migration_sleep_between_rounds_in_batch_ms:
+
 # (DIFFERENT_ACROSS_APPS | OPTIONAL | Default: 3600000) long value. Time in milliseconds for how long a webauthn
 # account recovery token is valid for.
 # webauthn_recover_account_token_lifetime:
