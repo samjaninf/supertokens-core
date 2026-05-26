@@ -25,7 +25,7 @@ public class SQLiteConfig {
 
     private static MigrationMode migrationMode = MigrationMode.MIGRATED;
 
-    public static void setMigrationModeForTesting(MigrationMode mode) {
+    public static void setMigrationMode(MigrationMode mode) {
         migrationMode = mode;
     }
 

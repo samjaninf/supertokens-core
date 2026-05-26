@@ -19,6 +19,7 @@ package io.supertokens.webserver.api.migration;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import io.supertokens.Main;
+import io.supertokens.pluginInterface.MigrationMode;
 import io.supertokens.pluginInterface.Storage;
 import io.supertokens.pluginInterface.exceptions.StorageQueryException;
 import io.supertokens.pluginInterface.migration.MigrationBackfillStorage;
@@ -35,12 +36,16 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * GET  /migration/backfill/progress
+ * GET  /migration/backfill/progress[?verify=true]
  *   – Root CUD ("", public): returns { status, cuds: [{connectionUriDomain, mode, pendingUsers, inconsistencies?}, ...] }
  *   – Any other CUD:         returns { status, mode, pendingUsers, inconsistencies? }
  *
- * `inconsistencies` is only included when pendingUsers == 0, because verifyBackfillCompleteness
- * performs a full table scan — running it while the backfill is still active is unnecessarily expensive.
+ * `pendingUsers` is always 0 for modes that no longer read from old tables (DUAL_WRITE_READ_NEW, MIGRATED).
+ *
+ * `inconsistencies` is only included when:
+ *   - ?verify=true is passed (the check is an expensive full table scan — not safe for monitoring loops)
+ *   - pendingUsers == 0 (no point verifying while backfill is still running)
+ *   - mode still reads from old tables (already-migrated CUDs have no meaningful inconsistency to detect)
  */
 public class MigrationBackfillProgressAPI extends WebserverAPI {
     private static final long serialVersionUID = 9823745862341L;
@@ -58,6 +63,7 @@ public class MigrationBackfillProgressAPI extends WebserverAPI {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException, ServletException {
         try {
             AppIdentifier appIdentifier = getAppIdentifier(req);
+            boolean verify = "true".equals(req.getParameter("verify"));
 
             if (isRootCUD(appIdentifier)) {
                 JsonArray cuds = new JsonArray();
@@ -68,7 +74,7 @@ public class MigrationBackfillProgressAPI extends WebserverAPI {
                         continue;
                     }
                     AppIdentifier cudApp = new AppIdentifier(rep.getConnectionUriDomain(), null);
-                    JsonObject entry = buildProgressEntry((MigrationBackfillStorage) storage, cudApp);
+                    JsonObject entry = buildProgressEntry((MigrationBackfillStorage) storage, cudApp, verify);
                     entry.addProperty("connectionUriDomain", rep.getConnectionUriDomain());
                     cuds.add(entry);
                 }
@@ -84,7 +90,7 @@ public class MigrationBackfillProgressAPI extends WebserverAPI {
                     sendJsonResponse(200, result, resp);
                     return;
                 }
-                JsonObject result = buildProgressEntry((MigrationBackfillStorage) storage, appIdentifier);
+                JsonObject result = buildProgressEntry((MigrationBackfillStorage) storage, appIdentifier, verify);
                 result.addProperty("status", "OK");
                 sendJsonResponse(200, result, resp);
             }
@@ -93,14 +99,20 @@ public class MigrationBackfillProgressAPI extends WebserverAPI {
         }
     }
 
-    private JsonObject buildProgressEntry(MigrationBackfillStorage mbs, AppIdentifier app)
+    private JsonObject buildProgressEntry(MigrationBackfillStorage mbs, AppIdentifier app, boolean verify)
             throws StorageQueryException {
         JsonObject entry = new JsonObject();
-        entry.addProperty("mode", mbs.getMigrationMode().name());
-        int pending = mbs.getBackfillPendingUsersCount(app);
+        MigrationMode mode = mbs.getMigrationMode();
+        entry.addProperty("mode", mode.name());
+
+        // Only meaningful while actively backfilling (DUAL_WRITE_READ_OLD). All other modes either
+        // never write to new tables (LEGACY) or have already flipped their read path to new tables.
+        int pending = mode.readsFromOldTables() ? mbs.getBackfillPendingUsersCount(app) : 0;
         entry.addProperty("pendingUsers", pending);
-        // Defer the expensive full-scan completeness check until the backfill is done.
-        if (pending == 0) {
+
+        // Completeness scan is only relevant pre-flip (still reading from old tables), only when
+        // backfill is done, and must be explicitly requested — it is a full table scan.
+        if (verify && pending == 0 && !mode.readsFromNewTables()) {
             entry.addProperty("inconsistencies", mbs.verifyBackfillCompleteness(app));
         }
         return entry;

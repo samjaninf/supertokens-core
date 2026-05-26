@@ -17,18 +17,14 @@
 package io.supertokens.inmemorydb;
 
 import com.google.gson.JsonObject;
-
 import io.supertokens.Main;
 import io.supertokens.ProcessState;
 import io.supertokens.inmemorydb.config.Config;
 import io.supertokens.inmemorydb.config.SQLiteConfig;
-import io.supertokens.pluginInterface.MigrationMode;
 import io.supertokens.inmemorydb.queries.*;
 import io.supertokens.pluginInterface.*;
-import io.supertokens.pluginInterface.authRecipe.AuthRecipeUserInfo;
-import io.supertokens.pluginInterface.authRecipe.CanBecomePrimaryResult;
-import io.supertokens.pluginInterface.authRecipe.CanLinkAccountsResult;
-import io.supertokens.pluginInterface.authRecipe.LoginMethod;
+import io.supertokens.pluginInterface.accountinfo.AccountInfoStorage;
+import io.supertokens.pluginInterface.authRecipe.*;
 import io.supertokens.pluginInterface.authRecipe.exceptions.*;
 import io.supertokens.pluginInterface.authRecipe.sqlStorage.AuthRecipeSQLStorage;
 import io.supertokens.pluginInterface.bulkimport.BulkImportStorage;
@@ -56,6 +52,7 @@ import io.supertokens.pluginInterface.jwt.JWTRecipeStorage;
 import io.supertokens.pluginInterface.jwt.JWTSigningKeyInfo;
 import io.supertokens.pluginInterface.jwt.exceptions.DuplicateKeyIdException;
 import io.supertokens.pluginInterface.jwt.sqlstorage.JWTRecipeSQLStorage;
+import io.supertokens.pluginInterface.migration.MigrationBackfillStorage;
 import io.supertokens.pluginInterface.multitenancy.AppIdentifier;
 import io.supertokens.pluginInterface.multitenancy.MultitenancyStorage;
 import io.supertokens.pluginInterface.multitenancy.TenantConfig;
@@ -96,17 +93,10 @@ import io.supertokens.pluginInterface.totp.exception.UnknownDeviceException;
 import io.supertokens.pluginInterface.totp.exception.UnknownTotpUserIdException;
 import io.supertokens.pluginInterface.totp.exception.UsedCodeAlreadyExistsException;
 import io.supertokens.pluginInterface.totp.sqlStorage.TOTPSQLStorage;
-import io.supertokens.pluginInterface.useridmapping.LockedUser;
-import io.supertokens.pluginInterface.useridmapping.LockedUserPair;
-import io.supertokens.pluginInterface.useridmapping.UserNotFoundForLockingException;
-import io.supertokens.pluginInterface.useridmapping.UserIdMapping;
-import io.supertokens.pluginInterface.useridmapping.UserIdMappingStorage;
-import io.supertokens.pluginInterface.useridmapping.UserLockingStorage;
+import io.supertokens.pluginInterface.useridmapping.*;
 import io.supertokens.pluginInterface.useridmapping.exception.UnknownSuperTokensUserIdException;
 import io.supertokens.pluginInterface.useridmapping.exception.UserIdMappingAlreadyExistsException;
 import io.supertokens.pluginInterface.useridmapping.sqlStorage.UserIdMappingSQLStorage;
-import io.supertokens.pluginInterface.accountinfo.AccountInfoStorage;
-import io.supertokens.pluginInterface.migration.MigrationBackfillStorage;
 import io.supertokens.pluginInterface.usermetadata.UserMetadataStorage;
 import io.supertokens.pluginInterface.usermetadata.sqlStorage.UserMetadataSQLStorage;
 import io.supertokens.pluginInterface.userroles.UserRolesStorage;
@@ -118,20 +108,16 @@ import io.supertokens.pluginInterface.webauthn.WebAuthNOptions;
 import io.supertokens.pluginInterface.webauthn.WebAuthNStoredCredential;
 import io.supertokens.pluginInterface.webauthn.exceptions.*;
 import io.supertokens.pluginInterface.webauthn.slqStorage.WebAuthNSQLStorage;
-
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.TestOnly;
 import org.sqlite.SQLiteException;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.SQLTransactionRollbackException;
 import java.util.*;
-
-import io.supertokens.pluginInterface.authRecipe.ACCOUNT_INFO_TYPE;
 
 public class Start
         implements SessionSQLStorage, EmailPasswordSQLStorage, EmailVerificationSQLStorage, ThirdPartySQLStorage,
@@ -4298,7 +4284,7 @@ public class Start
 
     @Override
     public void setMigrationMode(MigrationMode mode) {
-        SQLiteConfig.setMigrationModeForTesting(mode);
+        SQLiteConfig.setMigrationMode(mode);
     }
 
     @Override
