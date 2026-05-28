@@ -19,15 +19,12 @@ package io.supertokens.webserver.api.migration;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import io.supertokens.Main;
-import io.supertokens.pluginInterface.MigrationMode;
 import io.supertokens.pluginInterface.Storage;
-import io.supertokens.pluginInterface.exceptions.StorageQueryException;
 import io.supertokens.pluginInterface.migration.MigrationBackfillStorage;
 import io.supertokens.pluginInterface.multitenancy.AppIdentifier;
 import io.supertokens.pluginInterface.multitenancy.TenantIdentifier;
 import io.supertokens.pluginInterface.multitenancy.exceptions.TenantOrAppNotFoundException;
 import io.supertokens.storageLayer.StorageLayer;
-import io.supertokens.webserver.InputParser;
 import io.supertokens.webserver.WebserverAPI;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -41,9 +38,15 @@ import java.util.List;
  *   – Root CUD ("", public): returns { status, cuds: [{connectionUriDomain, mode}, ...] }
  *   – Any other CUD:         returns { status, mode }
  *
- * PUT  /migration/mode
- *   Body: { "mode": "LEGACY|DUAL_WRITE_READ_OLD|DUAL_WRITE_READ_NEW|MIGRATED" }
- *   Sets the migration mode for the CUD the request arrives on.
+ * Read-only convenience for operators. To set the migration mode, use the existing
+ * multitenancy CRUD endpoint with a coreConfig.migration_mode entry, e.g.
+ *
+ *   PUT /recipe/multitenancy/connectionuridomain/v2
+ *   { "connectionUriDomain": "...", "coreConfig": { "migration_mode": "DUAL_WRITE_READ_OLD" } }
+ *
+ * That goes through overwriteTenantConfig + MultitenancyHelper.refreshAfterKnownTenantChange,
+ * which rebuilds the storage's config from the persisted JSON and makes the new value
+ * visible to this endpoint on the next call.
  */
 public class MigrationModeAPI extends WebserverAPI {
     private static final long serialVersionUID = 4823845786237L;
@@ -93,40 +96,6 @@ public class MigrationModeAPI extends WebserverAPI {
                 sendJsonResponse(200, result, resp);
             }
         } catch (TenantOrAppNotFoundException e) {
-            throw new ServletException(e);
-        }
-    }
-
-    @Override
-    protected void doPut(HttpServletRequest req, HttpServletResponse resp) throws IOException, ServletException {
-        JsonObject input = InputParser.parseJsonObjectOrThrowError(req);
-        String modeStr = InputParser.parseStringOrThrowError(input, "mode", false);
-
-        MigrationMode mode;
-        try {
-            mode = MigrationMode.valueOf(modeStr);
-        } catch (IllegalArgumentException e) {
-            throw new ServletException(new BadRequestException(
-                    "mode must be one of: LEGACY, DUAL_WRITE_READ_OLD, DUAL_WRITE_READ_NEW, MIGRATED"));
-        }
-
-        try {
-            AppIdentifier appIdentifier = getAppIdentifier(req);
-            Storage storage = StorageLayer.getStorage(appIdentifier.getAsPublicTenantIdentifier(), main);
-
-            if (!(storage instanceof MigrationBackfillStorage)) {
-                JsonObject result = new JsonObject();
-                result.addProperty("status", "FEATURE_NOT_SUPPORTED_ERROR");
-                sendJsonResponse(200, result, resp);
-                return;
-            }
-
-            ((MigrationBackfillStorage) storage).setMigrationMode(mode);
-
-            JsonObject result = new JsonObject();
-            result.addProperty("status", "OK");
-            sendJsonResponse(200, result, resp);
-        } catch (TenantOrAppNotFoundException | StorageQueryException e) {
             throw new ServletException(e);
         }
     }

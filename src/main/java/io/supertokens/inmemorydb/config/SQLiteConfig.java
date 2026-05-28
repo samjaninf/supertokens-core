@@ -17,6 +17,7 @@
 package io.supertokens.inmemorydb.config;
 
 import io.supertokens.pluginInterface.MigrationMode;
+import org.jetbrains.annotations.TestOnly;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -25,7 +26,8 @@ public class SQLiteConfig {
 
     private static MigrationMode migrationMode = MigrationMode.MIGRATED;
 
-    public static void setMigrationMode(MigrationMode mode) {
+    @TestOnly
+    public static void setMigrationModeForTesting(MigrationMode mode) {
         migrationMode = mode;
     }
 
