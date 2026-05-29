@@ -374,6 +374,17 @@ public abstract class WebserverAPI extends HttpServlet {
         return appIdentifier;
     }
 
+    /**
+     * Returns true if the given AppIdentifier refers to the root CUD — empty
+     * connectionUriDomain and the default app. APIs that aggregate state across
+     * all CUDs use this to distinguish "give me the cluster-wide view" from
+     * "give me just my CUD" requests.
+     */
+    protected static boolean isRootCUD(AppIdentifier appIdentifier) {
+        return appIdentifier.getConnectionUriDomain().isEmpty()
+                && appIdentifier.getAppId().equals(AppIdentifier.DEFAULT_APP_ID);
+    }
+
     protected Storage getTenantStorage(HttpServletRequest req)
             throws TenantOrAppNotFoundException, ServletException {
         TenantIdentifier tenantIdentifier = new TenantIdentifier(this.getConnectionUriDomain(req), this.getAppId(req),

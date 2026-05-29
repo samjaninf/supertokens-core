@@ -37,15 +37,24 @@ import java.util.List;
 
 /**
  * GET  /migration/backfill/progress[?verify=true]
- *   – Root CUD ("", public): returns { status, cuds: [{connectionUriDomain, mode, pendingUsers, inconsistencies?}, ...] }
- *   – Any other CUD:         returns { status, mode, pendingUsers, inconsistencies? }
+ *   – Root CUD ("", public): returns
+ *       { status, cuds: [{connectionUriDomain, mode, pendingUsers, inconsistentUsersCount?, verifySkipped?, status?}, ...] }
+ *     Each CUD entry has either a {mode, pendingUsers, ...} payload OR
+ *     {status: "FEATURE_NOT_SUPPORTED"} when the storage doesn't implement MigrationBackfillStorage.
+ *   – Any other CUD:         returns
+ *       { status, mode, pendingUsers, inconsistentUsersCount?, verifySkipped? }
+ *     or { status: "FEATURE_NOT_SUPPORTED_ERROR" }.
  *
  * `pendingUsers` is always 0 for modes that no longer read from old tables (DUAL_WRITE_READ_NEW, MIGRATED).
  *
- * `inconsistencies` is only included when:
- *   - ?verify=true is passed (the check is an expensive full table scan — not safe for monitoring loops)
+ * `inconsistentUsersCount` is only included when verify=true AND all of:
  *   - pendingUsers == 0 (no point verifying while backfill is still running)
  *   - mode still reads from old tables (already-migrated CUDs have no meaningful inconsistency to detect)
+ *
+ * When verify=true but the count was skipped, `verifySkipped` carries the reason:
+ *   - "backfillIncomplete"  pending > 0
+ *   - "migrated"            mode no longer reads from old tables
+ * This gives monitoring callers a stable response shape regardless of CUD state.
  */
 public class MigrationBackfillProgressAPI extends WebserverAPI {
     private static final long serialVersionUID = 9823745862341L;
@@ -70,12 +79,17 @@ public class MigrationBackfillProgressAPI extends WebserverAPI {
                 for (List<TenantIdentifier> tenants : StorageLayer.getTenantsWithUniqueUserPoolId(main)) {
                     TenantIdentifier rep = tenants.get(0);
                     Storage storage = StorageLayer.getStorage(rep, main);
+                    JsonObject entry = new JsonObject();
+                    entry.addProperty("connectionUriDomain", rep.getConnectionUriDomain());
                     if (!(storage instanceof MigrationBackfillStorage)) {
+                        // Surface unsupported CUDs explicitly so operators can tell them apart
+                        // from CUDs that are missing from the cluster entirely.
+                        entry.addProperty("status", "FEATURE_NOT_SUPPORTED");
+                        cuds.add(entry);
                         continue;
                     }
                     AppIdentifier cudApp = new AppIdentifier(rep.getConnectionUriDomain(), null);
-                    JsonObject entry = buildProgressEntry((MigrationBackfillStorage) storage, cudApp, verify);
-                    entry.addProperty("connectionUriDomain", rep.getConnectionUriDomain());
+                    fillProgressFields(entry, (MigrationBackfillStorage) storage, cudApp, verify);
                     cuds.add(entry);
                 }
                 JsonObject result = new JsonObject();
@@ -90,7 +104,8 @@ public class MigrationBackfillProgressAPI extends WebserverAPI {
                     sendJsonResponse(200, result, resp);
                     return;
                 }
-                JsonObject result = buildProgressEntry((MigrationBackfillStorage) storage, appIdentifier, verify);
+                JsonObject result = new JsonObject();
+                fillProgressFields(result, (MigrationBackfillStorage) storage, appIdentifier, verify);
                 result.addProperty("status", "OK");
                 sendJsonResponse(200, result, resp);
             }
@@ -99,9 +114,12 @@ public class MigrationBackfillProgressAPI extends WebserverAPI {
         }
     }
 
-    private JsonObject buildProgressEntry(MigrationBackfillStorage mbs, AppIdentifier app, boolean verify)
-            throws StorageQueryException {
-        JsonObject entry = new JsonObject();
+    /**
+     * Populates {@code mode}, {@code pendingUsers}, and (when verify=true)
+     * either {@code inconsistentUsersCount} or {@code verifySkipped} on the given entry.
+     */
+    private void fillProgressFields(JsonObject entry, MigrationBackfillStorage mbs,
+                                    AppIdentifier app, boolean verify) throws StorageQueryException {
         MigrationMode mode = mbs.getMigrationMode();
         entry.addProperty("mode", mode.name());
 
@@ -110,16 +128,19 @@ public class MigrationBackfillProgressAPI extends WebserverAPI {
         int pending = mode.readsFromOldTables() ? mbs.getBackfillPendingUsersCount(app) : 0;
         entry.addProperty("pendingUsers", pending);
 
+        if (!verify) {
+            return;
+        }
+
         // Completeness scan is only relevant pre-flip (still reading from old tables), only when
         // backfill is done, and must be explicitly requested — it is a full table scan.
-        if (verify && pending == 0 && !mode.readsFromNewTables()) {
-            entry.addProperty("inconsistencies", mbs.verifyBackfillCompleteness(app));
+        if (!mode.readsFromOldTables()) {
+            entry.addProperty("verifySkipped", "migrated");
+        } else if (pending > 0) {
+            entry.addProperty("verifySkipped", "backfillIncomplete");
+        } else {
+            entry.addProperty("inconsistentUsersCount", mbs.verifyBackfillCompleteness(app));
         }
-        return entry;
     }
 
-    private static boolean isRootCUD(AppIdentifier appIdentifier) {
-        return appIdentifier.getConnectionUriDomain().isEmpty()
-                && appIdentifier.getAppId().equals(AppIdentifier.DEFAULT_APP_ID);
-    }
 }

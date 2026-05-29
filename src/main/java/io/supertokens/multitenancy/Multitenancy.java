@@ -37,6 +37,8 @@ import io.supertokens.config.CoreConfig;
 import io.supertokens.featureflag.EE_FEATURES;
 import io.supertokens.featureflag.FeatureFlag;
 import io.supertokens.featureflag.exceptions.FeatureNotEnabledException;
+import io.supertokens.migration.MigrationModeTransition;
+import io.supertokens.pluginInterface.MigrationMode;
 import io.supertokens.pluginInterface.authRecipe.exceptions.AnotherPrimaryUserWithEmailAlreadyExistsException;
 import io.supertokens.pluginInterface.authRecipe.exceptions.AnotherPrimaryUserWithPhoneNumberAlreadyExistsException;
 import io.supertokens.pluginInterface.authRecipe.exceptions.AnotherPrimaryUserWithThirdPartyInfoAlreadyExistsException;
@@ -224,9 +226,42 @@ public class Multitenancy extends ResourceDistributor.SingletonResource {
                     normalisedConfig, targetTenantConfig);
         }
 
+        // Validate migration_mode state-machine transitions. We only enforce this when the
+        // proposed coreConfig actually carries a migration_mode entry — if it's absent, the
+        // existing value persists unchanged (no transition). The expensive backfill-pending
+        // probe inside MigrationModeTransition only runs for transitions whose target is MIGRATED.
+        if (targetTenantConfig.coreConfig.has("migration_mode")) {
+            JsonObject currentConfig = new JsonObject();
+            TenantConfig tenantInfo = getTenantInfo(main, targetTenantConfig.tenantIdentifier);
+            if (tenantInfo != null) {
+                currentConfig = tenantInfo.coreConfig;
+            }
+            MigrationMode oldMode = parseMigrationModeOrDefault(currentConfig);
+            MigrationMode newMode = parseMigrationModeOrDefault(targetTenantConfig.coreConfig);
+            MigrationModeTransition.validate(main,
+                    targetTenantConfig.tenantIdentifier.toAppIdentifier(),
+                    oldMode, newMode);
+        }
+
         // validate third party config
         if (!skipThirdPartyConfigValidation) {
             ThirdParty.verifyThirdPartyProvidersArray(targetTenantConfig.thirdPartyConfig.providers);
+        }
+    }
+
+    /**
+     * Extracts migration_mode from a coreConfig JSON, defaulting to LEGACY when absent or
+     * unparseable. Mirrors the read-side coercion in PostgreSQLConfig.getMigrationMode so the
+     * transition validator agrees with the runtime parser.
+     */
+    private static MigrationMode parseMigrationModeOrDefault(JsonObject coreConfig) {
+        if (coreConfig == null || !coreConfig.has("migration_mode")) {
+            return MigrationMode.LEGACY;
+        }
+        try {
+            return MigrationMode.valueOf(coreConfig.get("migration_mode").getAsString().toUpperCase());
+        } catch (IllegalArgumentException | UnsupportedOperationException e) {
+            return MigrationMode.LEGACY;
         }
     }
 

@@ -100,8 +100,4 @@ public class MigrationModeAPI extends WebserverAPI {
         }
     }
 
-    private static boolean isRootCUD(AppIdentifier appIdentifier) {
-        return appIdentifier.getConnectionUriDomain().isEmpty()
-                && appIdentifier.getAppId().equals(AppIdentifier.DEFAULT_APP_ID);
-    }
 }
