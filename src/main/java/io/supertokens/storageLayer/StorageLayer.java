@@ -49,6 +49,9 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @WithinOtelSpan
 public class StorageLayer extends ResourceDistributor.SingletonResource {
@@ -284,6 +287,9 @@ public class StorageLayer extends ResourceDistributor.SingletonResource {
         // at this point, we have made sure that all the configs are fine and that the storage
         // objects are shared across tenants based on the config of each tenant.
 
+        // Populated inside the lock (fast — no I/O), then consumed after the lock is released.
+        Map<Storage, Set<TenantIdentifier>> storagesToInit = new HashMap<>();
+
         // now we loop through existing storage objects in the main resource distributor and reuse them
         // if the unique ID is the same as the storage objects created above.
         try {
@@ -333,42 +339,15 @@ public class StorageLayer extends ResourceDistributor.SingletonResource {
                     }
                 }
 
-                // we call init on all the newly saved storage objects.
+                // Build storage → tenants map while holding the lock (no I/O).
+                // initStorage() involves network connections and DDL; those run after
+                // the lock is released via initStoragesInParallel().
                 Map<ResourceDistributor.KeyClass, ResourceDistributor.SingletonResource> resources =
                         main.getResourceDistributor()
                                 .getAllResourcesWithResourceKey(RESOURCE_KEY);
-
-                // we are creating this map to find tenantIdentifiers that are associated with each storage.
-                // when we call the initStorage, the storage instance remembers the tenants that need to be created
-                // in case error happens. Whenever the connection is restored, the tenant entries are created on that
-                // storage. If the storage is already live, then it will be a no-op.
-                Map<Storage, Set<TenantIdentifier>> storageToTenantIdentifiersMap = new HashMap<>();
-                // Set tenant identifiers handled by each storage instance before initialising them
                 for (ResourceDistributor.KeyClass key : resources.keySet()) {
-                    if (storageToTenantIdentifiersMap.get(((StorageLayer) resources.get(key)).storage) == null) {
-                        storageToTenantIdentifiersMap.put(((StorageLayer) resources.get(key)).storage, new HashSet<>());
-                    }
-                    storageToTenantIdentifiersMap.get(((StorageLayer) resources.get(key)).storage)
-                            .add(key.getTenantIdentifier());
-                }
-
-                for (ResourceDistributor.KeyClass key : resources.keySet()) {
-                    ResourceDistributor.SingletonResource resource = resources.get(key);
-
-                    try {
-                        ((StorageLayer) resource).storage.initStorage(false,
-                                new ArrayList<>(storageToTenantIdentifiersMap.get(((StorageLayer) resource).storage)));
-                        ((StorageLayer) resource).storage.initFileLogging(
-                                Config.getBaseConfig(main).getInfoLogPath(main),
-                                Config.getBaseConfig(main).getErrorLogPath(main),
-                                TelemetryProvider.getInstance(main));
-                    } catch (DbInitException e) {
-
-                        Logging.error(main, TenantIdentifier.BASE_TENANT, e.getMessage(), false, e);
-                        // we ignore any exceptions from db here cause it's not the base tenant's db that
-                        // would throw and only tenants belonging to a specific tenant / app. In this case,
-                        // we still want other tenants to continue to work
-                    }
+                    Storage s = ((StorageLayer) resources.get(key)).storage;
+                    storagesToInit.computeIfAbsent(s, k -> new HashSet<>()).add(key.getTenantIdentifier());
                 }
 
                 return null;
@@ -378,6 +357,9 @@ public class StorageLayer extends ResourceDistributor.SingletonResource {
         } catch (ResourceDistributor.FuncException e) {
             throw new RuntimeException(e);
         }
+
+        // Connect every pool concurrently now that the ResourceDistributor lock is released.
+        initStoragesInParallel(main, storagesToInit);
     }
 
     /**
@@ -393,6 +375,7 @@ public class StorageLayer extends ResourceDistributor.SingletonResource {
         }
 
         JsonObject baseConfig = Config.getBaseConfigAsJsonObject(main);
+        Map<Storage, Set<TenantIdentifier>> storagesToInit = new HashMap<>();
 
         try {
             main.getResourceDistributor().withResourceDistributorLock(() -> {
@@ -433,17 +416,11 @@ public class StorageLayer extends ResourceDistributor.SingletonResource {
                         main.getResourceDistributor().setResource(changed, RESOURCE_KEY,
                                 new StorageLayer(storageToUse));
 
-                        // Init storage if this is a new pool
+                        // Defer initStorage() to after the lock — it involves TCP + DDL.
                         if (isNewPool) {
-                            storageToUse.initStorage(false, new ArrayList<>(List.of(changed)));
-                            storageToUse.initFileLogging(
-                                    Config.getBaseConfig(main).getInfoLogPath(main),
-                                    Config.getBaseConfig(main).getErrorLogPath(main),
-                                    TelemetryProvider.getInstance(main));
+                            storagesToInit.computeIfAbsent(storageToUse, k -> new HashSet<>()).add(changed);
                             existingPoolToStorage.put(uniqueId, storageToUse);
                         }
-                    } catch (DbInitException e) {
-                        Logging.error(main, TenantIdentifier.BASE_TENANT, e.getMessage(), false, e);
                     } catch (Exception e) {
                         Logging.error(main, TenantIdentifier.BASE_TENANT, e.getMessage(), false, e);
                     }
@@ -453,6 +430,8 @@ public class StorageLayer extends ResourceDistributor.SingletonResource {
         } catch (ResourceDistributor.FuncException e) {
             throw new RuntimeException(e);
         }
+
+        initStoragesInParallel(main, storagesToInit);
     }
 
     public static Storage getBaseStorage(Main main) {
@@ -729,6 +708,57 @@ public class StorageLayer extends ResourceDistributor.SingletonResource {
             throw new IllegalStateException("UserIdType.ANY is not supported for this method");
         }
         return allMappingsFromAllStorages;
+    }
+
+    /**
+     * Initializes each storage's connection pool concurrently using virtual threads.
+     *
+     * <p>This method MUST be called outside any ResourceDistributor lock. {@code initStorage()}
+     * opens TCP connections to the database and runs DDL (CREATE TABLE IF NOT EXISTS). That
+     * work can take tens of milliseconds per pool; holding the global lock during I/O would
+     * serialize all N pools and turn startup into O(N × latency) instead of O(latency).
+     *
+     * <p>The map is deduplicated by {@link Storage} instance, so each pool is initialized
+     * exactly once even when multiple tenants share a pool. We are therefore not actually
+     * racing concurrent {@code initStorage()} calls against each other on a single instance —
+     * the per-instance {@code isAlreadyInitialised} guard inside {@code initStorage()} is
+     * belt-and-braces, not load-bearing here.
+     *
+     * <p>Per-pool failures are caught and logged: a non-base-tenant pool failure must not
+     * prevent other tenants from working, matching the original sequential behaviour.
+     * {@code DbInitException} is the only checked exception either method declares;
+     * {@code initFileLogging} declares none. Anything else (e.g. a {@link RuntimeException}
+     * from log file setup) is propagated through {@code CompletableFuture.join()} as a
+     * {@code CompletionException} and crashes startup — same as the original sequential
+     * code, where such an exception would have escaped the for-loop unhandled.
+     *
+     * <p>The try-with-resources {@code close()} on the executor runs after {@code join()},
+     * by which time all tasks have terminated, so close is effectively a no-op.
+     */
+    private static void initStoragesInParallel(Main main, Map<Storage, Set<TenantIdentifier>> storagesToInit) {
+        if (storagesToInit.isEmpty()) {
+            return;
+        }
+        String infoLogPath = Config.getBaseConfig(main).getInfoLogPath(main);
+        String errorLogPath = Config.getBaseConfig(main).getErrorLogPath(main);
+        TelemetryProvider telemetry = TelemetryProvider.getInstance(main);
+
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<CompletableFuture<Void>> futures = new ArrayList<>();
+            for (Map.Entry<Storage, Set<TenantIdentifier>> entry : storagesToInit.entrySet()) {
+                Storage storage = entry.getKey();
+                List<TenantIdentifier> tenants = new ArrayList<>(entry.getValue());
+                futures.add(CompletableFuture.runAsync(() -> {
+                    try {
+                        storage.initStorage(false, tenants);
+                        storage.initFileLogging(infoLogPath, errorLogPath, telemetry);
+                    } catch (DbInitException e) {
+                        Logging.error(main, TenantIdentifier.BASE_TENANT, e.getMessage(), false, e);
+                    }
+                }, executor));
+            }
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        }
     }
 
 }
