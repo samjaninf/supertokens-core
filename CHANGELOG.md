@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [12.0.0]
+
+- Fix: SAML attribute values with `xsi:type="xsd:string"` are no longer silently dropped
+- Fix: SAML email extraction now checks `mail` and `email` claim attributes in addition to the WS-Federation URI claim and NameID
+
 ## [11.4.4]
 
 - Fix: adds the otel-javaagent to the installed distribution
