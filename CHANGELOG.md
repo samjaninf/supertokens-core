@@ -7,7 +7,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [11.4.5]
+## [12.0.0]
 
 - Fix: fixes permission issues with the installer's jre
 
