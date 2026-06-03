@@ -42,8 +42,9 @@ accidentally cut over too early. See `SCHEMA-REWORK.md` for the end-to-end runbo
   Resumes implicitly on restart (`WHERE time_joined = 0`).
 - `GET /migration/mode` and `GET /migration/backfill/progress[?verify=true]` — read-only operator endpoints,
   both root-CUD-aware.
-- `migration-scripts/migration-backfill.sql`, `migration-scripts/dump_old_canonical.sql`, and
-  `migration-scripts/dump_new_canonical.sql` — offline backfill plus side-by-side data parity dump.
+- Offline migration SQL scripts shipped in `supertokens-postgresql-plugin/migration-scripts/`:
+  `migration-backfill.sql`, `dump_old_canonical.sql`, `dump_new_canonical.sql` (backfill plus
+  side-by-side data parity dump).
 - Initialisation: storages now warm up in parallel during boot.
 
 ### Changed
@@ -64,7 +65,8 @@ accidentally cut over too early. See `SCHEMA-REWORK.md` for the end-to-end runbo
 ### Migration notes
 
 - See `SCHEMA-REWORK.md` for the operator runbook (online LEGACY → MIGRATED via the cron, or offline via
-  `migration-scripts/migration-backfill.sql` during a maintenance window).
+  `migration-scripts/migration-backfill.sql` in the `supertokens-postgresql-plugin` repository during a
+  maintenance window).
 
 ## [11.4.4]
 

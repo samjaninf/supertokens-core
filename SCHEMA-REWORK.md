@@ -128,8 +128,8 @@ size 1000, `SELECT ... FOR UPDATE` on `app_id_to_user_id`. Self-skips when
 mode == `LEGACY`. Resume on restart is implicit — `WHERE time_joined = 0`
 finds the remaining work, no cursor table needed.
 
-**Offline (psql)** — `migration-scripts/migration-backfill.sql` (at the
-supertokens-root level alongside this repo), one set-based pass per target
+**Offline (psql)** — `migration-scripts/migration-backfill.sql` shipped in the
+`supertokens-postgresql-plugin` repository, one set-based pass per target
 table, idempotent (`ON CONFLICT DO NOTHING`, `WHERE time_joined = 0`). Accepts
 `:'app_id'` to scope to a single app, or runs for the whole pool when unset.
 
@@ -252,9 +252,10 @@ returns `{cuds: [{connectionUriDomain, mode, pendingUsers}, ...]}`. Wait
 until `pendingUsers == 0` for every CUD you're migrating.
 
 For impatient operators with large user counts: run the offline SQL
-`migration-scripts/migration-backfill.sql` against the database from outside
-(idempotent, set-based, completes in one transaction). The cron will then
-see `pendingUsers == 0` immediately.
+`migration-scripts/migration-backfill.sql` (from the `supertokens-postgresql-plugin`
+repository) against the database from outside — it's idempotent, set-based, and
+completes in one transaction. The cron will then see `pendingUsers == 0`
+immediately.
 
 **Verify (optional but recommended):**
 
@@ -265,7 +266,8 @@ GET /migration/backfill/progress?verify=true
 This runs the `verifyBackfillCompleteness` scan and returns
 `inconsistentUsersCount`. Expect 0.
 
-For a deeper check, generate parity dumps:
+For a deeper check, generate parity dumps using the dump scripts in
+`supertokens-postgresql-plugin/migration-scripts/`:
 
 ```bash
 psql -v app_id="'<app>'" -f migration-scripts/dump_old_canonical.sql > old.csv
@@ -422,6 +424,11 @@ Shut the instance down before the data backfill so nothing is writing while
 psql runs.
 
 ### Step 3 — Run the offline backfill
+
+The script lives in the `supertokens-postgresql-plugin` repository at
+`migration-scripts/migration-backfill.sql`. Run it from a checkout of that
+repository (or copy the file out and run from anywhere — it has no external
+dependencies):
 
 ```bash
 psql "<connection-uri>" -v app_id="''" -f migration-scripts/migration-backfill.sql
