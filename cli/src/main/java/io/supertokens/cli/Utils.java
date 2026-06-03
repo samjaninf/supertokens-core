@@ -47,7 +47,8 @@ public class Utils {
             File srcParent = sourceFolder.getParentFile();
             createAllDirs(srcParent);
             try {
-                Files.copy(sourceFolder.toPath(), destinationFolder.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                Files.copy(sourceFolder.toPath(), destinationFolder.toPath(), StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.COPY_ATTRIBUTES);
             } catch (AccessDeniedException e) {
                 throw new QuitProgramException("Moving content to installation location failed. Try again with"
                         + ((OperatingSystem.getOS() == OperatingSystem.OS.WINDOWS) ? " root permissions." : " sudo."),

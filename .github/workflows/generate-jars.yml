@@ -17,6 +17,19 @@ on:
         required: false
         type: boolean
         default: false
+  workflow_call:
+    inputs:
+      core-version:
+        required: true
+        type: string
+      java-version:
+        required: false
+        type: string
+        default: '21.0.7'
+      commit-to-github:
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   generate-jars:
@@ -46,7 +59,7 @@ jobs:
       - name: Discover related versions
         id: versions
         run: |
-          CORE_VER="${{ github.event.inputs.core-version }}"
+          CORE_VER="${{ inputs.core-version }}"
           CORE_DIR=supertokens-root/supertokens-core
           PI_DIR=supertokens-root/supertokens-plugin-interface
           PG_DIR=supertokens-root/supertokens-postgresql-plugin
@@ -92,7 +105,7 @@ jobs:
 
       - name: Checkout release tags
         run: |
-          CORE_VER="${{ github.event.inputs.core-version }}"
+          CORE_VER="${{ inputs.core-version }}"
           PI_VER="${{ steps.versions.outputs.pi_version }}"
           PG_VER="${{ steps.versions.outputs.pg_version }}"
 
@@ -111,6 +124,11 @@ jobs:
               [[ -d "supertokens-core/$mod" ]] && echo "include 'supertokens-core:$mod'"
             done
           } > settings.gradle
+
+      - name: Copy JRE into distribution directory
+        run: |
+          cp -rL "$JAVA_HOME" supertokens-root/jre
+          chmod -R +x supertokens-root/jre/bin/
 
       - name: Git config
         run: |
@@ -131,7 +149,7 @@ jobs:
           AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
           S3_BUCKET: ${{ vars.S3_BUCKET }}
           S3_JAR_PREFIX: ${{ vars.S3_JAR_PREFIX }}
-          COMMIT_TO_GITHUB: ${{ github.event.inputs.commit-to-github }}
+          COMMIT_TO_GITHUB: ${{ inputs.commit-to-github }}
         run: |
           PI_VER="${{ steps.versions.outputs.pi_version }}"
           cd supertokens-root/supertokens-plugin-interface
@@ -184,7 +202,7 @@ jobs:
           AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
           S3_BUCKET: ${{ vars.S3_BUCKET }}
           S3_JAR_PREFIX: ${{ vars.S3_JAR_PREFIX }}
-          COMMIT_TO_GITHUB: ${{ github.event.inputs.commit-to-github }}
+          COMMIT_TO_GITHUB: ${{ inputs.commit-to-github }}
         run: |
           PG_VER="${{ steps.versions.outputs.pg_version }}"
           cd supertokens-root/supertokens-postgresql-plugin
@@ -237,9 +255,9 @@ jobs:
           AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
           S3_BUCKET: ${{ vars.S3_BUCKET }}
           S3_JAR_PREFIX: ${{ vars.S3_JAR_PREFIX }}
-          COMMIT_TO_GITHUB: ${{ github.event.inputs.commit-to-github }}
+          COMMIT_TO_GITHUB: ${{ inputs.commit-to-github }}
         run: |
-          CORE_VER="${{ github.event.inputs.core-version }}"
+          CORE_VER="${{ inputs.core-version }}"
           cd supertokens-root/supertokens-core
 
           # S3 upload — gather main JAR and all sub-module JARs into a staging dir

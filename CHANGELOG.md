@@ -9,6 +9,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [12.0.0]
 
+- Fix: fixes permission issues with the installer's jre
 - Fix: upgrade embedded tomcat and the OTEL related libs because of security vulnerabilities
 
 ## [11.4.4]

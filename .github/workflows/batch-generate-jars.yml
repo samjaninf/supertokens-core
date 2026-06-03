@@ -1,0 +1,58 @@
+name: Batch Regenerate JARs
+
+on:
+  workflow_dispatch:
+    inputs:
+      core-versions:
+        description: 'Core versions to regenerate JARs for, one per line or comma-separated (e.g. 11.4.0, 11.3.1)'
+        required: true
+        type: string
+      java-version:
+        description: 'JDK version used to build (e.g. 21.0.7 for modern releases, 15.0.2 for older backports)'
+        required: false
+        type: string
+        default: '21.0.7'
+      commit-to-github:
+        description: 'Also commit the generated JARs to the GitHub repositories and update tags'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  # ── Parse the free-text version list into a JSON matrix ──────────────
+  prepare:
+    name: Parse version list
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.parse.outputs.matrix }}
+    steps:
+      - name: Parse versions into matrix
+        id: parse
+        run: |
+          # Accept newline- or comma-separated versions; strip whitespace and blank lines.
+          versions=$(printf '%s' "${{ inputs.core-versions }}" \
+            | tr ',\n' '\n\n' \
+            | sed 's/[[:space:]]//g' \
+            | grep -v '^$' \
+            | jq -R . \
+            | jq -sc .)
+          if [[ "$versions" == "[]" ]]; then
+            echo "::error::No versions parsed from input — check formatting" >&2
+            exit 1
+          fi
+          echo "Versions to process: $versions"
+          echo "matrix={\"version\":$versions}" >> $GITHUB_OUTPUT
+
+  # ── Fan out: one generate-jars run per version ────────────────────────
+  generate:
+    name: Generate JARs for v${{ matrix.version }}
+    needs: prepare
+    strategy:
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+      fail-fast: false
+    uses: ./.github/workflows/generate-jars.yml
+    with:
+      core-version: ${{ matrix.version }}
+      java-version: ${{ inputs.java-version }}
+      commit-to-github: ${{ inputs.commit-to-github }}
+    secrets: inherit

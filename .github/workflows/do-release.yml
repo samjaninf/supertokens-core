@@ -183,6 +183,11 @@ jobs:
           path: supertokens-root/supertokens-postgresql-plugin
           ref: ${{ needs.dependency-branches.outputs.postgresql-sha }}
 
+      - name: Copy JRE into distribution directory
+        run: |
+          cp -rL "$JAVA_HOME" supertokens-root/jre
+          chmod -R +x supertokens-root/jre/bin/
+
       - name: Load modules
         run: |
           cd supertokens-root
@@ -331,6 +336,11 @@ jobs:
       - name: Setup test environment
         run: cd supertokens-root && ./utils/setupTestEnv --local
 
+      - name: Copy JRE into distribution directory
+        run: |
+          cp -rL "$JAVA_HOME" supertokens-root/jre
+          chmod -R +x supertokens-root/jre/bin/
+
       - name: Generate config file
         run: |
           cd supertokens-root
@@ -451,6 +461,11 @@ jobs:
           cd supertokens-root
           git clone https://${{ secrets.GH_TOKEN }}@github.com/supertokens/supertokens-postgresql-plugin.git
           git -C supertokens-postgresql-plugin checkout ${{ needs.dependency-branches.outputs.postgresql-sha }}
+
+      - name: Copy JRE into distribution directory
+        run: |
+          cp -rL "$JAVA_HOME" supertokens-root/jre
+          chmod -R +x supertokens-root/jre/bin/
 
       - name: Write release password
         run: |
