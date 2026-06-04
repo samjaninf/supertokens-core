@@ -4,10 +4,11 @@ import os
 import http.client
 
 
-def register_plugin_version(supertokens_api_key, plugin_version, plugin_interface_array, plugin_name):
+def register_plugin_version(supertokens_api_key, plugin_version, plugin_interface_array, plugin_name, is_canary):
     print("Plugin Version: ", plugin_version)
     print("Plugin Interface Array: ", plugin_interface_array)
     print("Plugin Name: ", plugin_name)
+    print("Is Canary: ", is_canary)
 
     conn = http.client.HTTPSConnection("api.supertokens.io")
 
@@ -16,7 +17,8 @@ def register_plugin_version(supertokens_api_key, plugin_version, plugin_interfac
         "planType": "FREE",
         "version": plugin_version,
         "pluginInterfaces": plugin_interface_array,
-        "name": plugin_name
+        "name": plugin_name,
+        "isCanary": is_canary
     }
 
     headers = {
@@ -50,5 +52,6 @@ register_plugin_version(
 	supertokens_api_key=os.environ.get("SUPERTOKENS_API_KEY"),
 	plugin_version=plugin_version,
 	plugin_interface_array=plugin_interface_array,
-	plugin_name=os.environ.get("PLUGIN_NAME")
+	plugin_name=os.environ.get("PLUGIN_NAME"),
+	is_canary=os.environ.get("IS_CANARY", "false").lower() == "true"
 )

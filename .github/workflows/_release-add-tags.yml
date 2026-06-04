@@ -1,0 +1,183 @@
+name: Release – Add release tags
+
+on:
+  workflow_call:
+    inputs:
+      core-version:
+        type: string
+        required: true
+      plugin-interface-version:
+        type: string
+        required: true
+      postgresql-plugin-version:
+        type: string
+        required: true
+      core-sha:
+        type: string
+        required: true
+      plugin-interface-sha:
+        type: string
+        required: true
+      postgresql-sha:
+        type: string
+        required: true
+      release-plugin-interface:
+        type: boolean
+        required: true
+      release-postgresql-plugin:
+        type: boolean
+        required: true
+      is-canary:
+        type: boolean
+        required: true
+      is-latest-release:
+        type: boolean
+        required: true
+
+jobs:
+  add-release-tags:
+    name: Add release tags
+    environment: publish
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Set up JDK 21.0.7
+        uses: actions/setup-java@v4
+        with:
+          java-version: 21.0.7
+          distribution: zulu
+
+      - name: Checkout supertokens-root
+        uses: actions/checkout@v4
+        with:
+          repository: supertokens/supertokens-root
+          path: supertokens-root
+          ref: master
+
+      - name: Checkout supertokens-core
+        run: |
+          cd supertokens-root
+          git clone https://${{ secrets.GH_TOKEN }}@github.com/supertokens/supertokens-core.git
+          git -C supertokens-core checkout ${{ inputs.core-sha }}
+
+      - name: Checkout supertokens-plugin-interface
+        run: |
+          cd supertokens-root
+          git clone https://${{ secrets.GH_TOKEN }}@github.com/supertokens/supertokens-plugin-interface.git
+          git -C supertokens-plugin-interface checkout ${{ inputs.plugin-interface-sha }}
+
+      - name: Checkout supertokens-postgresql-plugin
+        run: |
+          cd supertokens-root
+          git clone https://${{ secrets.GH_TOKEN }}@github.com/supertokens/supertokens-postgresql-plugin.git
+          git -C supertokens-postgresql-plugin checkout ${{ inputs.postgresql-sha }}
+
+      - name: Write release password
+        run: |
+          cd supertokens-root
+          echo "${{ secrets.SUPERTOKENS_API_KEY }}" > releasePassword
+          echo "${{ secrets.SUPERTOKENS_API_KEY }}" > apiPassword
+
+      - name: Load modules
+        run: |
+          cd supertokens-root
+          cat > modules.txt <<'EOF'
+          core,master
+          plugin-interface,master
+          postgresql-plugin,master
+          EOF
+          ./loadModules
+
+      - name: Setup test environment
+        run: cd supertokens-root && ./utils/setupTestEnv --local
+
+      - name: Git config
+        run: |
+          git config --global user.name "Supertokens Bot"
+          git config --global user.email "<>"
+
+      - name: Tag plugin-interface
+        id: tag-pi
+        if: inputs.release-plugin-interface && !inputs.is-canary
+        run: |
+          cd supertokens-root/supertokens-plugin-interface
+          ./addReleaseTag
+
+      - name: Create plugin-interface GitHub release
+        if: steps.tag-pi.outcome == 'success' || (inputs.release-plugin-interface && inputs.is-canary)
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          if [ "${{ inputs.is-canary }}" == "true" ]; then
+            tag="v${{ inputs.plugin-interface-version }}-canary"
+            gh release create "$tag" \
+              --repo supertokens/supertokens-plugin-interface \
+              --title "$tag" \
+              --target "${{ inputs.plugin-interface-sha }}" \
+              --generate-notes \
+              --prerelease \
+              --latest=false
+          else
+            gh release create "v${{ inputs.plugin-interface-version }}" \
+              --repo supertokens/supertokens-plugin-interface \
+              --title "v${{ inputs.plugin-interface-version }}" \
+              --generate-notes \
+              ${{ inputs.is-latest-release && '--latest' || '--latest=false' }}
+          fi
+
+      - name: Tag postgresql-plugin
+        id: tag-pg
+        if: inputs.release-postgresql-plugin && !inputs.is-canary
+        run: |
+          cd supertokens-root/supertokens-postgresql-plugin
+          ./addReleaseTag
+
+      - name: Create postgresql-plugin GitHub release
+        if: steps.tag-pg.outcome == 'success' || (inputs.release-postgresql-plugin && inputs.is-canary)
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          if [ "${{ inputs.is-canary }}" == "true" ]; then
+            tag="v${{ inputs.postgresql-plugin-version }}-canary"
+            gh release create "$tag" \
+              --repo supertokens/supertokens-postgresql-plugin \
+              --title "$tag" \
+              --target "${{ inputs.postgresql-sha }}" \
+              --generate-notes \
+              --prerelease \
+              --latest=false
+          else
+            gh release create "v${{ inputs.postgresql-plugin-version }}" \
+              --repo supertokens/supertokens-postgresql-plugin \
+              --title "v${{ inputs.postgresql-plugin-version }}" \
+              --generate-notes \
+              ${{ inputs.is-latest-release && '--latest' || '--latest=false' }}
+          fi
+
+      - name: Tag core
+        id: tag-core
+        if: '!inputs.is-canary'
+        run: |
+          cd supertokens-root/supertokens-core
+          ./addReleaseTag
+
+      - name: Create core GitHub release
+        if: steps.tag-core.outcome == 'success' || inputs.is-canary
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          if [ "${{ inputs.is-canary }}" == "true" ]; then
+            tag="v${{ inputs.core-version }}-canary"
+            gh release create "$tag" \
+              --repo supertokens/supertokens-core \
+              --title "$tag" \
+              --target "${{ inputs.core-sha }}" \
+              --generate-notes \
+              --prerelease \
+              --latest=false
+          else
+            gh release create "v${{ inputs.core-version }}" \
+              --repo supertokens/supertokens-core \
+              --title "v${{ inputs.core-version }}" \
+              --generate-notes \
+              ${{ inputs.is-latest-release && '--latest' || '--latest=false' }}
+          fi

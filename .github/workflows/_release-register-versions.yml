@@ -1,0 +1,79 @@
+name: Release – Register versions
+
+on:
+  workflow_call:
+    inputs:
+      core-version:
+        type: string
+        required: true
+      core-sha:
+        type: string
+        required: true
+      postgresql-plugin-version:
+        type: string
+        required: true
+      postgresql-sha:
+        type: string
+        required: true
+      release-postgresql-plugin:
+        type: boolean
+        required: true
+      is-canary:
+        type: boolean
+        required: true
+
+jobs:
+  register-core-version:
+    name: Register core version
+    environment: publish
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout supertokens-core
+        uses: actions/checkout@v4
+        # No ref: — defaults to github.sha (workflow branch), gets latest helper scripts
+      - name: Fetch release data files from release branch
+        run: |
+          git fetch origin ${{ inputs.core-sha }}
+          git checkout ${{ inputs.core-sha }} -- \
+            build.gradle \
+            pluginInterfaceSupported.json \
+            coreDriverInterfaceSupported.json
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Register core version
+        env:
+          SUPERTOKENS_API_KEY: ${{ secrets.SUPERTOKENS_API_KEY }}
+          IS_CANARY: ${{ inputs.is-canary }}
+        run: python .github/helpers/register-new-core-version.py
+
+  register-plugin-version:
+    name: Register PostgreSQL plugin version
+    if: inputs.release-postgresql-plugin
+    environment: publish
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout supertokens-core
+        uses: actions/checkout@v4
+        # No ref: — defaults to github.sha (workflow branch), gets latest helper scripts
+      - name: Checkout supertokens-postgresql-plugin
+        uses: actions/checkout@v4
+        with:
+          path: supertokens-plugin
+          repository: supertokens/supertokens-postgresql-plugin
+          ref: ${{ inputs.postgresql-sha }}
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Register plugin version
+        env:
+          SUPERTOKENS_API_KEY: ${{ secrets.SUPERTOKENS_API_KEY }}
+          PLUGIN_NAME: postgresql
+          IS_CANARY: ${{ inputs.is-canary }}
+        run: |
+          cd supertokens-plugin
+          python ../.github/helpers/register-new-plugin-version.py

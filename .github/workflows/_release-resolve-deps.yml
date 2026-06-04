@@ -1,0 +1,57 @@
+name: Release – Resolve dependencies
+
+on:
+  workflow_call:
+    inputs:
+      core-version:
+        type: string
+        required: true
+      plugin-interface-version:
+        type: string
+        required: true
+      postgresql-plugin-version:
+        type: string
+        required: true
+    outputs:
+      core-sha:
+        value: ${{ jobs.resolve.outputs.core-sha }}
+      plugin-interface-sha:
+        value: ${{ jobs.resolve.outputs.plugin-interface-sha }}
+      postgresql-sha:
+        value: ${{ jobs.resolve.outputs.postgresql-sha }}
+
+jobs:
+  resolve:
+    name: Resolve dependencies
+    environment: publish
+    runs-on: ubuntu-22.04
+    outputs:
+      core-sha: ${{ steps.shas.outputs.core }}
+      plugin-interface-sha: ${{ steps.shas.outputs.plugin-interface }}
+      postgresql-sha: ${{ steps.shas.outputs.postgresql }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supertokens/get-core-dependencies-action@main
+        id: result
+        with:
+          run-for: add-dev-tag
+          core-version: ${{ inputs.core-version }}
+          plugin-interface-version: ${{ inputs.plugin-interface-version }}
+          postgresql-plugin-version: ${{ inputs.postgresql-plugin-version }}
+      - name: Resolve commit SHAs
+        id: shas
+        env:
+          BRANCHES: ${{ steps.result.outputs.branches }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          core_branch=$(echo "$BRANCHES" | jq -r '.core')
+          pi_branch=$(echo "$BRANCHES" | jq -r '.["plugin-interface"]')
+          pg_branch=$(echo "$BRANCHES" | jq -r '.postgresql')
+
+          core_sha=$(git ls-remote "https://x-access-token:${GH_TOKEN}@github.com/supertokens/supertokens-core.git" "refs/heads/$core_branch" | cut -f1)
+          pi_sha=$(git ls-remote "https://x-access-token:${GH_TOKEN}@github.com/supertokens/supertokens-plugin-interface.git" "refs/heads/$pi_branch" | cut -f1)
+          pg_sha=$(git ls-remote "https://x-access-token:${GH_TOKEN}@github.com/supertokens/supertokens-postgresql-plugin.git" "refs/heads/$pg_branch" | cut -f1)
+
+          echo "core=$core_sha" >> $GITHUB_OUTPUT
+          echo "plugin-interface=$pi_sha" >> $GITHUB_OUTPUT
+          echo "postgresql=$pg_sha" >> $GITHUB_OUTPUT
