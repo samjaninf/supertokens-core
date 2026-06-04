@@ -3,10 +3,11 @@ import os
 
 import http.client
 
-def register_core_version(supertokens_api_key, core_version, plugin_interface_array, core_driver_array):
+def register_core_version(supertokens_api_key, core_version, plugin_interface_array, core_driver_array, is_canary):
 	print("Core Version: ", core_version)
 	print("Plugin Interface Array: ", plugin_interface_array)
 	print("Core Driver Array: ", core_driver_array)
+	print("Is Canary: ", is_canary)
 
 	conn = http.client.HTTPSConnection("api.supertokens.io")
 
@@ -15,7 +16,8 @@ def register_core_version(supertokens_api_key, core_version, plugin_interface_ar
 		"planType": "FREE",
 		"version": core_version,
 		"pluginInterfaces": plugin_interface_array,
-		"coreDriverInterfaces": core_driver_array
+		"coreDriverInterfaces": core_driver_array,
+		"isCanary": is_canary
 	}
 	
 	headers = {
@@ -53,5 +55,6 @@ register_core_version(
 	supertokens_api_key=os.environ.get("SUPERTOKENS_API_KEY"),
 	core_version=core_version,
 	plugin_interface_array=plugin_interface_array,
-	core_driver_array=core_driver_array
+	core_driver_array=core_driver_array,
+	is_canary=os.environ.get("IS_CANARY", "false").lower() == "true"
 )
