@@ -34,6 +34,7 @@ import java.util.zip.Deflater;
 import java.util.zip.DeflaterOutputStream;
 
 import org.opensaml.core.xml.XMLObject;
+import org.opensaml.core.xml.schema.XSString;
 import org.opensaml.core.xml.XMLObjectBuilderFactory;
 import org.opensaml.core.xml.config.XMLObjectProviderRegistrySupport;
 import org.opensaml.core.xml.io.MarshallingException;
@@ -564,21 +565,25 @@ public class SAML {
                     JsonArray attributeValues = new JsonArray();
 
                     for (XMLObject attributeValue : attribute.getAttributeValues()) {
-                        if (attributeValue instanceof org.opensaml.saml.saml2.core.AttributeValue) {
+                        String value = null;
+                        if (attributeValue instanceof XSString) {
+                            // xsi:type="xsd:string" or "xs:string" — used by AD FS, Azure AD, and most
+                            // enterprise IdPs. OpenSAML 4 materialises these as XSStringImpl, which does
+                            // NOT implement the AttributeValue marker interface, so a plain instanceof
+                            // AttributeValue check would silently drop every such value.
+                            value = ((XSString) attributeValue).getValue();
+                        } else if (attributeValue instanceof org.opensaml.saml.saml2.core.AttributeValue) {
                             org.opensaml.saml.saml2.core.AttributeValue attrValue =
                                     (org.opensaml.saml.saml2.core.AttributeValue) attributeValue;
-
-                            if (attrValue.getDOM() != null) {
-                                String value = attrValue.getDOM().getTextContent();
-                                if (value != null && !value.trim().isEmpty()) {
-                                    attributeValues.add(value.trim());
-                                }
-                            } else if (attrValue.getTextContent() != null) {
-                                String value = attrValue.getTextContent();
-                                if (!value.trim().isEmpty()) {
-                                    attributeValues.add(value.trim());
-                                }
-                            }
+                            value = attrValue.getDOM() != null
+                                    ? attrValue.getDOM().getTextContent()
+                                    : attrValue.getTextContent();
+                        } else if (attributeValue.getDOM() != null) {
+                            // Catch-all for XSAny, XSURI, and any other typed XMLObject.
+                            value = attributeValue.getDOM().getTextContent();
+                        }
+                        if (value != null && !value.trim().isEmpty()) {
+                            attributeValues.add(value.trim());
                         }
                     }
 
@@ -637,6 +642,12 @@ public class SAML {
         if (claims.has("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress")) {
             email = claims.getAsJsonArray("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress")
                     .get(0).getAsString();
+        } else if (claims.has("mail")) {
+            // LDAP friendly name used by AD FS, ADFS, and many enterprise IdPs
+            email = claims.getAsJsonArray("mail").get(0).getAsString();
+        } else if (claims.has("email")) {
+            // OpenID Connect / SCIM style
+            email = claims.getAsJsonArray("email").get(0).getAsString();
         } else if (claims.has("NameID")) {
             String nameIdValue = claims.getAsJsonArray("NameID").get(0).getAsString();
             if (nameIdValue.contains("@")) {
