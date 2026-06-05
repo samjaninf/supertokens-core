@@ -154,6 +154,11 @@ test {
                "--add-opens=java.base/java.lang=ALL-UNNAMED",
                "--add-opens=java.base/java.util=ALL-UNNAMED",
                "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED"]
+    // Forward OAuth service coordinates explicitly so forked test JVMs always see the
+    // current environment, even when a long-lived Gradle daemon pre-dates these vars.
+    environment 'TEST_OAUTH_HOST',        System.getenv().getOrDefault('TEST_OAUTH_HOST',        'localhost')
+    environment 'TEST_OAUTH_PUBLIC_PORT', System.getenv().getOrDefault('TEST_OAUTH_PUBLIC_PORT', '4444')
+    environment 'TEST_OAUTH_ADMIN_PORT',  System.getenv().getOrDefault('TEST_OAUTH_ADMIN_PORT',  '4445')
     testLogging {
         outputs.upToDateWhen { false }
         showStandardStreams = true
