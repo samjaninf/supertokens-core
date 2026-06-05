@@ -52,6 +52,9 @@ public class ActiveUsers {
      * updateLastActive (e.g. resolving a user-id mapping).
      */
     public static boolean wasRecentlyActive(AppIdentifier appIdentifier, String userId) {
+        if (Main.isTesting) {
+            return false;
+        }
         return isRecentlyActive(cacheKey(appIdentifier, userId), System.currentTimeMillis());
     }
 

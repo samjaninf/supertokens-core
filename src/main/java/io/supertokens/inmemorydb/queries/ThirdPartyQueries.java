@@ -136,12 +136,10 @@ public class ThirdPartyQueries {
                 }
 
                 if (mode.writesToNewTables()) { // recipe_user_tenants
-                    // Insert row for email. Use "" for third_party_id so that email rows match the
-                    // `AND third_party_id = ''` filter in listPrimaryUserIdsByEmail for index-friendly lookups.
-                    // Use `id` (recipe user ID) as third_party_user_id to guarantee PK uniqueness when
-                    // multiple ThirdParty users share the same email address.
+                    // Insert row for email. Store the actual third-party provider values so the PK is
+                    // naturally unique even when two ThirdParty users share the same email address.
                     AccountInfoQueries.addRecipeUserAccountInfo_Transaction(start, sqlCon, tenantIdentifier, id,
-                            THIRD_PARTY.toString(), ACCOUNT_INFO_TYPE.EMAIL, "", id, email);
+                            THIRD_PARTY.toString(), ACCOUNT_INFO_TYPE.EMAIL, thirdParty.id, thirdParty.userId, email);
 
                     // Insert row for third party id
                     AccountInfoQueries.addRecipeUserAccountInfo_Transaction(start, sqlCon, tenantIdentifier, id,
