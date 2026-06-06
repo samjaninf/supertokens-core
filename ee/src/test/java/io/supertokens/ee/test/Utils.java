@@ -78,22 +78,16 @@ public abstract class Utils extends Mockito {
             // mimics production. Refer to https://github.com/supertokens/supertokens-core/issues/118
             commentConfigValue("disable_telemetry");
 
-            // Set PostgreSQL host and port from environment variables (for Docker test environments)
-            String pgHost = System.getenv("TEST_PG_HOST");
-            if (pgHost == null || pgHost.isEmpty()) {
-                pgHost = System.getProperty("TEST_PG_HOST");
-            }
-            if (pgHost != null && !pgHost.isEmpty()) {
-                setValueInConfig("postgresql_host", "\"" + pgHost + "\"");
-            }
-
-            String pgPort = System.getenv("TEST_PG_PORT");
-            if (pgPort == null || pgPort.isEmpty()) {
-                pgPort = System.getProperty("TEST_PG_PORT");
-            }
-            if (pgPort != null && !pgPort.isEmpty()) {
-                setValueInConfig("postgresql_port", pgPort);
-            }
+            // Configure the PostgreSQL connection for the test process (for Docker/CI test envs).
+            // IMPORTANT: Config.canBeUsed() returns true only if a user/password (or connection URI)
+            // is set. Setting just host/port is NOT enough — without user/password the core SILENTLY
+            // falls back to the in-memory DB, which grants ALL EE features for free and breaks the
+            // license tests (they'd see 8 features instead of the licensed set). So we set the full
+            // connection here, sourced from the test env and defaulting to the standard local Postgres.
+            setValueInConfig("postgresql_host", "\"" + envOrProp("TEST_PG_HOST", "localhost") + "\"");
+            setValueInConfig("postgresql_port", envOrProp("TEST_PG_PORT", "5432"));
+            setValueInConfig("postgresql_user", "\"" + envOrProp("TEST_PG_USER", "root") + "\"");
+            setValueInConfig("postgresql_password", "\"" + envOrProp("TEST_PG_PASSWORD", "root") + "\"");
 
             TestingProcessManager.killAll();
             TestingProcessManager.deleteAllInformation();
@@ -105,6 +99,15 @@ public abstract class Utils extends Mockito {
             e.printStackTrace();
         }
         System.gc();
+    }
+
+    // Reads a value from the environment, falling back to a system property, then a default.
+    private static String envOrProp(String name, String defaultValue) {
+        String v = System.getenv(name);
+        if (v == null || v.isEmpty()) {
+            v = System.getProperty(name);
+        }
+        return (v != null && !v.isEmpty()) ? v : defaultValue;
     }
 
     static void commentConfigValue(String key) throws IOException {
