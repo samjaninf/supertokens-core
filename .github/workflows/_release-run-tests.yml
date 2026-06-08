@@ -72,6 +72,17 @@ jobs:
         if: matrix.plugin == 'postgresql'
         run: supertokens-root/supertokens-postgresql-plugin/startDb.sh
 
+      - name: Create PostgreSQL worker databases
+        if: matrix.plugin == 'postgresql'
+        run: |
+          # Pre-create worker-specific CUD databases for parallel Gradle test workers.
+          # maxParallelForks = availableProcessors(); create for up to 8 workers to be safe.
+          for w in $(seq 1 8); do
+            for n in $(seq 0 50); do
+              docker exec postgres psql -U root root -c "CREATE DATABASE \"st${n}_w${w}\";" 2>/dev/null || true
+            done
+          done
+
       - name: Setup test environment
         run: cd supertokens-root && ./utils/setupTestEnv --local
 
