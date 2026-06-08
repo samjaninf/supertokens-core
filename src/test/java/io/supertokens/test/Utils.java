@@ -18,6 +18,7 @@ package io.supertokens.test;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import io.supertokens.ActiveUsers;
 import io.supertokens.Main;
 import io.supertokens.ResourceDistributor;
 import io.supertokens.config.CoreConfig;
@@ -150,21 +151,16 @@ public abstract class Utils extends Mockito {
             // Update the config to use the test-specific database (if one was created)
             if (testDbName != null) {
                 setValueInConfig("postgresql_database_name", "\"" + testDbName + "\"");
+                setValueInConfig("postgresql_user", "\"" + DatabaseTestHelper.getUser() + "\"");
+                setValueInConfig("postgresql_password", "\"" + DatabaseTestHelper.getPassword() + "\"");
+                setValueInConfig("migration_mode", "MIGRATED");
 
-                // Also set the PostgreSQL host and port from environment variables
-                // This ensures the core connects to the correct PostgreSQL instance
-                String pgHost = System.getenv("TEST_PG_HOST");
-                if (pgHost == null || pgHost.isEmpty()) {
-                    pgHost = System.getProperty("TEST_PG_HOST");
-                }
+                String pgHost = DatabaseTestHelper.getHost();
                 if (pgHost != null && !pgHost.isEmpty()) {
                     setValueInConfig("postgresql_host", "\"" + pgHost + "\"");
                 }
 
-                String pgPort = System.getenv("TEST_PG_PORT");
-                if (pgPort == null || pgPort.isEmpty()) {
-                    pgPort = System.getProperty("TEST_PG_PORT");
-                }
+                String pgPort = DatabaseTestHelper.getPort();
                 if (pgPort != null && !pgPort.isEmpty()) {
                     setValueInConfig("postgresql_port", pgPort);
                 }
@@ -173,6 +169,7 @@ public abstract class Utils extends Mockito {
             byteArrayOutputStream = new ByteArrayOutputStream();
             System.setErr(new PrintStream(byteArrayOutputStream));
             TelemetryProvider.resetForTest();
+            ActiveUsers.clearCacheForTesting();
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -238,12 +235,13 @@ public abstract class Utils extends Mockito {
     }
 
     public static TestRule retryFlakyTest() {
-        return retryFlakyTest(10);
+        return retryFlakyTest(3);
     }
 
     public static TestRule retryFlakyTest(int retryCount) {
         return new TestRule() {
-            private final int retryCount = 1;
+            // NOTE: do NOT redeclare retryCount here — the field would shadow the parameter
+            // and the loop would always run exactly once regardless of what was passed.
 
             public Statement apply(Statement base, Description description) {
                 return statement(base, description);

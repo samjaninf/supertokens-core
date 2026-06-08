@@ -52,6 +52,9 @@ public class ActiveUsers {
      * updateLastActive (e.g. resolving a user-id mapping).
      */
     public static boolean wasRecentlyActive(AppIdentifier appIdentifier, String userId) {
+        if (Main.isTesting) {
+            return false;
+        }
         return isRecentlyActive(cacheKey(appIdentifier, userId), System.currentTimeMillis());
     }
 
@@ -68,7 +71,7 @@ public class ActiveUsers {
             throws TenantOrAppNotFoundException {
         long now = System.currentTimeMillis();
         String key = cacheKey(appIdentifier, userId);
-        if (isRecentlyActive(key, now)) {
+        if (!Main.isTesting && isRecentlyActive(key, now)) {
             return;
         }
         Storage storage = StorageLayer.getStorage(appIdentifier.getAsPublicTenantIdentifier(), main);

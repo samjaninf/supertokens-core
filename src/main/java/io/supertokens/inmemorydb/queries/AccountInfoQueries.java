@@ -124,7 +124,7 @@ public class AccountInfoQueries {
     static String getQueryToCreateAccountInfoIndexForRecipeUserTenantsTable(Start start) {
         return "CREATE INDEX IF NOT EXISTS idx_recipe_user_tenants_account_info ON "
                 + Config.getConfig(start).getRecipeUserTenantsTable()
-                + "(app_id, tenant_id, account_info_type, third_party_id, account_info_value);";
+                + "(app_id, tenant_id, account_info_type, account_info_value);";
     }
 
     static String getQueryToCreatePrimaryUserIndexForPrimaryUserTenantsTable(Start start) {
@@ -867,8 +867,8 @@ try {
      *
      * @param user The locked user to associate with the tenant
      */
-    public static void addTenantIdToRecipeUser_Transaction(Start start, Connection sqlCon,
-                                                            TenantIdentifier tenantIdentifier, LockedUser user)
+    public static boolean addTenantIdToRecipeUser_Transaction(Start start, Connection sqlCon,
+                                                               TenantIdentifier tenantIdentifier, LockedUser user)
             throws StorageQueryException, DuplicateEmailException, DuplicateThirdPartyUserException, DuplicatePhoneNumberException {
         // Validate that the lock is still valid for this connection
         assertValidForConnection(user, sqlCon);
@@ -952,13 +952,14 @@ try {
                     return firstConflictType;
                 });
 
-                // Step 3: Insert new rows using INSERT OR IGNORE
+                // Step 3: Insert new rows using INSERT OR IGNORE; track if any row was newly added
                 String insertQuery = "INSERT OR IGNORE INTO " + recipeUserTenantsTable
                         + " (app_id, recipe_user_id, tenant_id, recipe_id, account_info_type, third_party_id, third_party_user_id, account_info_value)"
                         + " VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
 
+                boolean anyRowInserted = false;
                 for (String[] record : recordsToInsert) {
-                    update(sqlCon, insertQuery, pst -> {
+                    int numRows = update(sqlCon, insertQuery, pst -> {
                         pst.setString(1, appIdentifier.getAppId());
                         pst.setString(2, userId);
                         pst.setString(3, tenantIdentifier.getTenantId());
@@ -968,11 +969,17 @@ try {
                         pst.setString(7, record[3]); // third_party_user_id
                         pst.setString(8, record[4]); // account_info_value
                     });
+                    if (numRows > 0) anyRowInserted = true;
                 }
+
+                // Throw conflict if any row had a different recipe_user_id
+                throwRecipeUserTenantsConflict(conflictAccountInfoType, false);
+                return anyRowInserted;
             }
 
-            // Throw conflict if any row had a different recipe_user_id
-            throwRecipeUserTenantsConflict(conflictAccountInfoType, false);
+            // No account info records — user has no account info rows; treat as already associated.
+            throwRecipeUserTenantsConflict(null, false);
+            return false;
         } catch (EmailChangeNotAllowedException | PhoneNumberChangeNotAllowedException e) {
             throw new IllegalStateException("should never happen", e);
         } catch (SQLException e) {
@@ -992,12 +999,13 @@ try {
             AnotherPrimaryUserWithEmailAlreadyExistsException,
             AnotherPrimaryUserWithThirdPartyInfoAlreadyExistsException {
 
-        // Verify the user is a primary user
-        if (!primaryUser.isPrimary()) {
-            throw new IllegalStateException("User must be a primary user");
+        // Allow both primary users and linked recipe users — caller is responsible for only passing
+        // users that belong to a primary user group (getPrimaryUserId() != null).
+        String primaryUserId = primaryUser.getPrimaryUserId();
+        if (primaryUserId == null) {
+            throw new IllegalStateException("User must be a primary user or linked to one");
         }
 
-        String supertokensUserId = primaryUser.getRecipeUserId();
         Connection sqlCon = (Connection) con.getConnection();
         assertValidForConnection(primaryUser, sqlCon);
         String primaryUserTenantsTable = Config.getConfig(start).getPrimaryUserTenantsTable();
@@ -1007,16 +1015,18 @@ try {
         // So we need to do this in multiple steps
 
         try {
-            // Step 1: Get all account info records to be inserted
-            String selectQuery = "SELECT rac.app_id, rac.account_info_type, rac.account_info_value, rac.primary_user_id"
+            // Step 1: Get ALL account info records for the entire primary user group.
+            // Querying by primary_user_id (not recipe_user_id) ensures that when any member of
+            // the group is added to a tenant, all account info for the whole group is reserved.
+            String selectQuery = "SELECT rac.account_info_type, rac.account_info_value, rac.primary_user_id"
                     + " FROM " + recipeUserAccountInfosTable + " rac"
-                    + " WHERE rac.app_id = ? AND rac.recipe_user_id = ?";
+                    + " WHERE rac.app_id = ? AND rac.primary_user_id = ?";
 
             List<String[]> recordsToInsert = new ArrayList<>();
 
             execute(sqlCon, selectQuery, pst -> {
                 pst.setString(1, tenantIdentifier.getAppId());
-                pst.setString(2, supertokensUserId);
+                pst.setString(2, primaryUserId);
             }, rs -> {
                 while (rs.next()) {
                     recordsToInsert.add(new String[]{
@@ -1058,8 +1068,8 @@ try {
                         String returnedPrimaryUserId = rs.getString("primary_user_id");
                         String accountInfoType = rs.getString("account_info_type");
 
-                        // Check if the returned primary_user_id is different from the supertokensUserId
-                        if (!supertokensUserId.equals(returnedPrimaryUserId)) {
+                        // Conflict only when a DIFFERENT primary user already owns this account info.
+                        if (!primaryUserId.equals(returnedPrimaryUserId)) {
                             if (firstConflict == null) {
                                 firstConflict = new String[]{returnedPrimaryUserId, accountInfoType};
                             }
@@ -1095,17 +1105,18 @@ try {
         }
     }
 
-    public static void removeAccountInfoForRecipeUserWhileRemovingTenant_Transaction(Start start, Connection sqlCon, TenantIdentifier tenantIdentifier, LockedUser user) throws StorageQueryException {
+    public static boolean removeAccountInfoForRecipeUserWhileRemovingTenant_Transaction(Start start, Connection sqlCon, TenantIdentifier tenantIdentifier, LockedUser user) throws StorageQueryException {
         assertValidForConnection(user, sqlCon);
         try {
             String QUERY = "DELETE FROM " + Config.getConfig(start).getRecipeUserTenantsTable()
                     + " WHERE app_id = ? AND tenant_id = ? AND recipe_user_id = ?";
 
-            update(sqlCon, QUERY, pst -> {
+            int numRows = update(sqlCon, QUERY, pst -> {
                 pst.setString(1, tenantIdentifier.getAppId());
                 pst.setString(2, tenantIdentifier.getTenantId());
                 pst.setString(3, user.getRecipeUserId());
             });
+            return numRows > 0;
         } catch (SQLException e) {
             throw new StorageQueryException(e);
         }
@@ -1470,14 +1481,12 @@ try {
     public static List<String> listPrimaryUserIdsByEmail(Start start, TenantIdentifier tenantIdentifier,
                                                           String email)
             throws SQLException, StorageQueryException {
-        // third_party_id = '' enables full index utilization on idx_recipe_user_tenants_account_info.
-        // See PostgreSQL AccountInfoQueries for detailed explanation.
         String QUERY = "SELECT DISTINCT auid.primary_or_recipe_user_id"
                 + " FROM " + Config.getConfig(start).getRecipeUserTenantsTable() + " rut"
                 + " JOIN " + Config.getConfig(start).getAppIdToUserIdTable() + " auid"
                 + " ON rut.app_id = auid.app_id AND rut.recipe_user_id = auid.user_id"
                 + " WHERE rut.app_id = ? AND rut.tenant_id = ?"
-                + " AND rut.account_info_type = ? AND rut.third_party_id = ''"
+                + " AND rut.account_info_type = ?"
                 + " AND rut.account_info_value = ?";
 
         return execute(start, QUERY, pst -> {
@@ -1497,7 +1506,7 @@ try {
     public static List<String> listPrimaryUserIdsByPhoneNumber(Start start, TenantIdentifier tenantIdentifier,
                                                                 String phoneNumber)
             throws SQLException, StorageQueryException {
-        // See comment in listPrimaryUserIdsByEmail for why third_party_id = '' is needed.
+        // Phone number rows always have third_party_id = '' (Passwordless has no ThirdParty concept).
         String QUERY = "SELECT DISTINCT auid.primary_or_recipe_user_id"
                 + " FROM " + Config.getConfig(start).getRecipeUserTenantsTable() + " rut"
                 + " JOIN " + Config.getConfig(start).getAppIdToUserIdTable() + " auid"

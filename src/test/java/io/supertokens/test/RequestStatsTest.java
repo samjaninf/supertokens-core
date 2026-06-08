@@ -146,8 +146,10 @@ public class RequestStatsTest {
                 new JsonObject()
         ), false);
 
+        // 50 tasks (40 to a1) keeps the 80% ratio and completes reliably on 2-vCPU CI runners
+        // where bcrypt throughput is ~3–4 ops/second; 500 tasks would need ~120+ seconds.
         ExecutorService ex = Executors.newFixedThreadPool(StorageLayer.isInMemDb(process.getProcess()) ? 1 : 100);
-        int numRequests = 500;
+        int numRequests = 50;
         for (int i = 0; i < numRequests; i++) {
             int finalI = i;
             ex.execute(() -> {
@@ -157,7 +159,7 @@ public class RequestStatsTest {
                 } catch (Exception e) {
                     // ignore
                 }
-                if (finalI < 400) {
+                if (finalI < 40) {
                     try {
                         TestMultitenancyAPIHelper.epSignUp(new TenantIdentifier(null, "a1", null),
                                 "test" + finalI + "@example.com", "password", process.getProcess());
@@ -169,7 +171,7 @@ public class RequestStatsTest {
         }
 
         ex.shutdown();
-        ex.awaitTermination(45, TimeUnit.SECONDS); // should finish in 45 seconds
+        ex.awaitTermination(45, TimeUnit.SECONDS);
 
         {
             JsonObject stats = HttpRequestForTesting
@@ -221,7 +223,7 @@ public class RequestStatsTest {
                 if (e.getAsDouble() == -1) {
                     count++;
                 } else {
-                    assertEquals(400, Math.round(e.getAsDouble() * 60));
+                    assertEquals(40, Math.round(e.getAsDouble() * 60));
                     avg = e.getAsDouble();
                 }
             }

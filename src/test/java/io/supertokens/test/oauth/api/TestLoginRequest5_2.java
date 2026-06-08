@@ -114,7 +114,7 @@ public class TestLoginRequest5_2 {
         verifyClientStructure(clientInResponse);
 
         String oauthHost = System.getProperty("ST_OAUTH_PROVIDER_SERVICE_HOST", System.getenv().getOrDefault("TEST_OAUTH_HOST", "localhost"));
-        String oauthPort = System.getProperty("ST_OAUTH_PROVIDER_SERVICE_PORT", System.getenv().getOrDefault("TEST_OAUTH_PUBLIC_PORT", "4444"));
+        String oauthPort = System.getenv().getOrDefault("TEST_OAUTH_PUBLIC_PORT", "4444");
         String expectedRequestUrlPrefix = "http://" + oauthHost + ":" + oauthPort + "/oauth2/auth?";
         assertTrue(loginRequestResponse.get("requestUrl").getAsString().startsWith(expectedRequestUrlPrefix));
         assertTrue(loginRequestResponse.has("sessionId"));

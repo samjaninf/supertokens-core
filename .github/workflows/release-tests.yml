@@ -24,7 +24,7 @@ jobs:
         id: result
         with:
           run-for: PR
-          core-branch: ${{ github.ref_name }}
+          core-branch: ${{ github.head_ref || github.ref_name }}
 
   # ── Update dependency manifests if needed ────────────────────────
   update-deps:
@@ -132,7 +132,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:13
+        image: postgres:17
         env:
           POSTGRES_USER: root
           POSTGRES_PASSWORD: root
@@ -140,6 +140,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
+          --name postgres
           --health-cmd "pg_isready -U root"
           --health-interval 5s
           --health-timeout 3s
@@ -189,6 +190,20 @@ jobs:
           EOF
           ./loadModules
 
+      - name: Configure PostgreSQL
+        if: matrix.plugin == 'postgresql'
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: root
+          PGPASSWORD: root
+        run: |
+          # GHA service containers don't support passing server args in YAML, so we
+          # apply max_connections via ALTER SYSTEM and restart the container.
+          psql -d root -c "ALTER SYSTEM SET max_connections = 1000;"
+          docker restart postgres
+          until pg_isready -h localhost -U root; do sleep 1; done
+
       - name: Create PostgreSQL test databases
         if: matrix.plugin == 'postgresql'
         env:
@@ -200,6 +215,13 @@ jobs:
           for db in supertokens $(seq -f 'st%.0f' 0 50); do
             psql -d root -c "CREATE DATABASE \"$db\";" 2>/dev/null || true
           done
+          # Also pre-create worker-specific databases for parallel test workers.
+          # maxParallelForks = availableProcessors(); create for up to 8 workers to be safe.
+          for w in $(seq 1 8); do
+            for n in $(seq 0 50); do
+              psql -d root -c "CREATE DATABASE \"st${n}_w${w}\";" 2>/dev/null || true
+            done
+          done
 
       - name: Setup test environment
         run: cd supertokens-root && ./utils/setupTestEnv --local
@@ -208,6 +230,7 @@ jobs:
         env:
           ST_PLUGIN_NAME: ${{ matrix.plugin }}
           TEST_PG_ADMIN_DB: root
+          TEST_PG_HOST: localhost
         run: |
           cd supertokens-root
           ./gradlew test
@@ -244,8 +267,15 @@ jobs:
         run: python .github/helpers/wait-for-docker.py
       - name: Set image tag
         id: set_tag
+        env:
+          # publish-dev-docker.yml builds on branch push and tags the image with the branch name.
+          # On pull_request events GITHUB_REF is the merge ref (refs/pull/N/merge), which would
+          # produce a tag like "refs_pull_N_merge" that was never pushed. Derive the tag from the
+          # PR's source branch (head_ref) instead — falling back to ref_name for push events —
+          # and sanitise it the same way (slashes -> underscores) so it matches the pushed image.
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
-          echo "TAG=${GITHUB_REF}" | sed 's/refs\/heads\///g' | sed 's/\//_/g' >> $GITHUB_OUTPUT
+          echo "TAG=$(echo "$BRANCH_NAME" | sed 's/\//_/g')" >> "$GITHUB_OUTPUT"
 
   # ── Stress tests (uses the published Docker image) ────────────────
   stress-tests:

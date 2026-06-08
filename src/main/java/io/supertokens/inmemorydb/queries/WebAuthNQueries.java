@@ -134,6 +134,15 @@ public class WebAuthNQueries {
     }
 
     public static String getQueryToCreateWebAuthNAccountRecoveryTokenTable(Start start) {
+        // FK references app_id_to_user_id, not all_auth_recipe_users. The latter is the old
+        // tenant-scoped table and is empty in MIGRATED mode — inserting recovery tokens would
+        // fail with a FK violation there. app_id_to_user_id is written in every migration mode
+        // (it's the always-populated root of the user identity graph), so this FK is stable
+        // across all modes. Matches the pattern used by emailpassword password_reset_tokens.
+        //
+        // tenant_id stays in the PK for query efficiency (recovery tokens are tenant-scoped
+        // for lookup purposes) but isn't part of the FK — tenant membership is enforced at
+        // the application layer, not at the DB level.
         return "CREATE TABLE IF NOT EXISTS " + Config.getConfig(start).getWebAuthNAccountRecoveryTokenTable() + "(" +
                 " app_id VARCHAR(64) DEFAULT 'public' NOT NULL," +
                 " tenant_id VARCHAR(64) DEFAULT 'public' NOT NULL," +
@@ -142,8 +151,8 @@ public class WebAuthNQueries {
                 " token VARCHAR(256) NOT NULL," +
                 " expires_at BIGINT UNSIGNED NOT NULL," +
                 " CONSTRAINT webauthn_account_recovery_token_pkey PRIMARY KEY (app_id, tenant_id, user_id, token)," +
-                " CONSTRAINT webauthn_account_recovery_token_user_id_fkey FOREIGN KEY (app_id, tenant_id, user_id) REFERENCES " +
-                Config.getConfig(start).getUsersTable() + " (app_id, tenant_id, user_id) ON DELETE CASCADE" +
+                " CONSTRAINT webauthn_account_recovery_token_user_id_fkey FOREIGN KEY (app_id, user_id) REFERENCES " +
+                Config.getConfig(start).getAppIdToUserIdTable() + " (app_id, user_id) ON DELETE CASCADE" +
                 ");";
     }
 

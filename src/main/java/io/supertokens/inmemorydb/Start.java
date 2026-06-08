@@ -2604,10 +2604,15 @@ public class Start
             String recipeId = GeneralQueries.getRecipeIdForUser_Transaction(lockedUser);
 
             MigrationMode mode = Config.getConfig(this).getMigrationMode();
+
+            // Track whether the user was already associated in new tables (for return-value computation).
+            boolean addedInNewTables = false;
             if (mode.writesToNewTables()) {
-                AccountInfoQueries.addTenantIdToRecipeUser_Transaction(this, sqlCon, tenantIdentifier, lockedUser);
+                addedInNewTables = AccountInfoQueries.addTenantIdToRecipeUser_Transaction(this, sqlCon, tenantIdentifier, lockedUser);
             }
 
+            // Always call recipe-specific queries so that a deleted user (ghost entry in app_id_to_user_id
+            // with no recipe-table rows) throws UnknownUserIdException — mirrors PostgreSQL behaviour.
             boolean added;
             if (recipeId.equals("emailpassword")) {
                 added = EmailPasswordQueries.addUserIdToTenant_Transaction(this, sqlCon, tenantIdentifier,
@@ -2619,6 +2624,11 @@ public class Start
                         userId);
             } else {
                 throw new IllegalStateException("Should never come here!");
+            }
+
+            if (mode.writesToNewTables() && !mode.writesToOldTables()) {
+                // In MIGRATED mode the new-table insert is authoritative for the return value.
+                added = addedInNewTables;
             }
 
             sqlCon.commit();
@@ -2678,6 +2688,16 @@ public class Start
                     // Get recipe ID from LockedUser (fetched from app_id_to_user_id during lock acquisition)
                     String recipeId = GeneralQueries.getRecipeIdForUser_Transaction(lockedUser);
 
+                    MigrationMode mode = Config.getConfig(Start.this).getMigrationMode();
+
+                    if (!mode.writesToOldTables()) {
+                        // MIGRATED mode: only new tables exist, use their delete result directly
+                        AccountInfoQueries.removeAccountInfoReservationForPrimaryUserWhileRemovingTenant_Transaction(this, sqlCon, tenantIdentifier, lockedUser);
+                        boolean removed = AccountInfoQueries.removeAccountInfoForRecipeUserWhileRemovingTenant_Transaction(this, sqlCon, tenantIdentifier, lockedUser);
+                        sqlCon.commit();
+                        return removed;
+                    }
+
                     boolean removed;
                     if (recipeId.equals("emailpassword")) {
                         removed = EmailPasswordQueries.removeUserIdFromTenant_Transaction(this, sqlCon,
@@ -2692,7 +2712,6 @@ public class Start
                         throw new IllegalStateException("Should never come here!");
                     }
 
-                    MigrationMode mode = Config.getConfig(Start.this).getMigrationMode();
                     if (mode.writesToNewTables()) {
                         AccountInfoQueries.removeAccountInfoReservationForPrimaryUserWhileRemovingTenant_Transaction(this, sqlCon, tenantIdentifier, lockedUser);
                         AccountInfoQueries.removeAccountInfoForRecipeUserWhileRemovingTenant_Transaction(this, sqlCon, tenantIdentifier, lockedUser);
@@ -4260,7 +4279,7 @@ public class Start
     }
 
     @Override
-    public void addTenantIdToRecipeUser_Transaction(
+    public boolean addTenantIdToRecipeUser_Transaction(
             TenantIdentifier tenantIdentifier,
             TransactionConnection con,
             LockedUser user)
@@ -4268,10 +4287,10 @@ public class Start
             DuplicateThirdPartyUserException, DuplicatePhoneNumberException {
         MigrationMode mode = Config.getConfig(this).getMigrationMode();
         if (!mode.writesToNewTables()) {
-            return;
+            return false;
         }
         Connection sqlCon = (Connection) con.getConnection();
-        AccountInfoQueries.addTenantIdToRecipeUser_Transaction(
+        return AccountInfoQueries.addTenantIdToRecipeUser_Transaction(
                 this, sqlCon, tenantIdentifier, user);
     }
 

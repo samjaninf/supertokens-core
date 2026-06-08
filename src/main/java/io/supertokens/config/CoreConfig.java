@@ -1237,9 +1237,11 @@ public class CoreConfig {
 
                 if (fieldType == String.class) {
                     valueType = "string";
-                } else if (fieldType == boolean.class) {
+                } else if (fieldType == boolean.class || fieldType == Boolean.class) {
                     valueType = "boolean";
-                } else if (fieldType == int.class || fieldType == long.class || fieldType == double.class) {
+                } else if (fieldType == int.class || fieldType == Integer.class
+                        || fieldType == long.class || fieldType == Long.class
+                        || fieldType == double.class || fieldType == Double.class) {
                     valueType = "number";
                 } else {
                     throw new RuntimeException("Unknown field type " + fieldType.getName());

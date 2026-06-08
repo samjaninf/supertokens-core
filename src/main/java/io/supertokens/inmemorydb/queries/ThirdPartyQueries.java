@@ -136,7 +136,8 @@ public class ThirdPartyQueries {
                 }
 
                 if (mode.writesToNewTables()) { // recipe_user_tenants
-                    // Insert row for email
+                    // Insert row for email. Store the actual third-party provider values so the PK is
+                    // naturally unique even when two ThirdParty users share the same email address.
                     AccountInfoQueries.addRecipeUserAccountInfo_Transaction(start, sqlCon, tenantIdentifier, id,
                             THIRD_PARTY.toString(), ACCOUNT_INFO_TYPE.EMAIL, thirdParty.id, thirdParty.userId, email);
 
