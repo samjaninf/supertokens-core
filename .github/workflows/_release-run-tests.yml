@@ -102,6 +102,7 @@ jobs:
         env:
           ST_PLUGIN_NAME: ${{ matrix.plugin }}
           TEST_PG_ADMIN_DB: root
+          TEST_PG_HOST: localhost
         run: |
           cd supertokens-root
           ./gradlew test

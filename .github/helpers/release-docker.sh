@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set +e
+set -euo pipefail
 
 # Check for required arguments
 if [ "$#" -ne 2 ]; then
@@ -34,7 +34,8 @@ done
 # Create and push manifest for multi-arch image
 echo "Creating and pushing multi-arch manifest for $TARGET_IMAGE..."
 
-docker manifest create "$TARGET_IMAGE" "${TEMP_IMAGES[@]}"
+# --amend is required when re-running for an already-published tag
+docker manifest create --amend "$TARGET_IMAGE" "${TEMP_IMAGES[@]}"
 
 echo "✅ Created manifest for $TARGET_IMAGE..."
 
