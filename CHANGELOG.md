@@ -7,6 +7,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [12.0.1]
+
+- Fix: Allow new CUDs to be created as MIGRATED
+
 ## [12.0.0]
 
 - Fix: SAML attribute values with `xsi:type="xsd:string"` are no longer silently dropped

@@ -230,17 +230,19 @@ public class Multitenancy extends ResourceDistributor.SingletonResource {
         // proposed coreConfig actually carries a migration_mode entry — if it's absent, the
         // existing value persists unchanged (no transition). The expensive backfill-pending
         // probe inside MigrationModeTransition only runs for transitions whose target is MIGRATED.
+        //
+        // Freshly created CUDs/tenants (no existing tenantInfo) are exempt: there is no prior
+        // mode to transition from, so they may be created with whatever migration_mode they
+        // declare. The state-machine rules only constrain updates to an already-existing tenant.
         if (targetTenantConfig.coreConfig.has("migration_mode")) {
-            JsonObject currentConfig = new JsonObject();
             TenantConfig tenantInfo = getTenantInfo(main, targetTenantConfig.tenantIdentifier);
             if (tenantInfo != null) {
-                currentConfig = tenantInfo.coreConfig;
+                MigrationMode oldMode = parseMigrationModeOrDefault(tenantInfo.coreConfig);
+                MigrationMode newMode = parseMigrationModeOrDefault(targetTenantConfig.coreConfig);
+                MigrationModeTransition.validate(main,
+                        targetTenantConfig.tenantIdentifier.toAppIdentifier(),
+                        oldMode, newMode);
             }
-            MigrationMode oldMode = parseMigrationModeOrDefault(currentConfig);
-            MigrationMode newMode = parseMigrationModeOrDefault(targetTenantConfig.coreConfig);
-            MigrationModeTransition.validate(main,
-                    targetTenantConfig.tenantIdentifier.toAppIdentifier(),
-                    oldMode, newMode);
         }
 
         // validate third party config
