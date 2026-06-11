@@ -7,6 +7,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [12.0.2]
+
+- Fix: Protection against SAML XML signature wrapping (XSW) attack.
+
 ## [12.0.1]
 
 - Fix: Allow new CUDs to be created as MIGRATED
