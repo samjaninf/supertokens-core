@@ -1,11 +1,14 @@
 package io.supertokens;
 
+import io.supertokens.auditlog.AuditLog;
 import io.supertokens.pluginInterface.ActiveUsersSQLStorage;
 import io.supertokens.pluginInterface.Storage;
 import io.supertokens.pluginInterface.StorageUtils;
+import io.supertokens.pluginInterface.auditlog.AuditLogEvent;
 import io.supertokens.pluginInterface.exceptions.StorageQueryException;
 import io.supertokens.pluginInterface.exceptions.StorageTransactionLogicException;
 import io.supertokens.pluginInterface.multitenancy.AppIdentifier;
+import io.supertokens.pluginInterface.multitenancy.TenantIdentifier;
 import io.supertokens.pluginInterface.multitenancy.exceptions.TenantOrAppNotFoundException;
 import io.supertokens.storageLayer.StorageLayer;
 import org.jetbrains.annotations.TestOnly;
@@ -78,8 +81,24 @@ public class ActiveUsers {
         try {
             StorageUtils.getActiveUsersStorage(storage).updateLastActive(appIdentifier, userId);
             recordActiveAt(key, now);
+            emitLastActiveAuditLog(main, storage, appIdentifier, userId, now);
         } catch (StorageQueryException ignored) {
         }
+    }
+
+    /**
+     * Records a {@code user_last_active} entry in the activity_log table. Mirrors every successful
+     * user_last_active write so the audit log captures user activity. Best-effort: {@link AuditLog#emit}
+     * swallows its own failures, so a failed audit write never affects the active-users update.
+     */
+    private static void emitLastActiveAuditLog(Main main, Storage storage, AppIdentifier appIdentifier,
+                                               String userId, long now) {
+        TenantIdentifier tenantIdentifier = appIdentifier.getAsPublicTenantIdentifier();
+        AuditLog.emit(main, storage, tenantIdentifier, new AuditLogEvent(
+                appIdentifier.getAppId(), tenantIdentifier.getTenantId(),
+                userId, userId,
+                "user_last_active", "success", null, null,
+                now, null));
     }
 
     @TestOnly
@@ -123,6 +142,7 @@ public class ActiveUsers {
         try {
             activeUsersStorage.updateLastActive(appIdentifier, primaryUserId);
             recordActiveAt(cacheKey(appIdentifier, primaryUserId), now);
+            emitLastActiveAuditLog(main, activeUsersStorage, appIdentifier, primaryUserId, now);
         } catch (StorageQueryException ignored) {
         }
     }

@@ -46,7 +46,6 @@ import io.supertokens.pluginInterface.exceptions.InvalidConfigException;
 import io.supertokens.pluginInterface.exceptions.StorageQueryException;
 import io.supertokens.pluginInterface.multitenancy.TenantIdentifier;
 import io.supertokens.storageLayer.StorageLayer;
-import io.supertokens.auditlog.AuditLogSinkProvider;
 import io.supertokens.telemetry.TelemetryProvider;
 import io.supertokens.version.Version;
 import io.supertokens.webserver.Webserver;
@@ -175,7 +174,6 @@ public class Main {
         Version.loadVersion(this, CLIOptions.get(this).getInstallationPath() + "version.yaml");
 
         TelemetryProvider.initialize(this);
-        AuditLogSinkProvider.initialize(this, CLIOptions.get(this).getInstallationPath() + "audit-plugins/");
 
         // loading storage layer
         try {
@@ -475,10 +473,6 @@ public class Main {
             removeDotStartedFileForThisProcess();
             Logging.stopLogging(this);
             TelemetryProvider.closeTelemetry(this);
-            AuditLogSinkProvider provider = AuditLogSinkProvider.getInstance(this);
-            if (provider != null) {
-                provider.close();
-            }
             // uncomment this when you want to confirm that processes are actually shut.
             // printRunningThreadNames();
 

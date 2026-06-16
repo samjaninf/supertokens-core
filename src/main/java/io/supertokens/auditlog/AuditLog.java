@@ -26,8 +26,7 @@ import io.supertokens.pluginInterface.multitenancy.TenantIdentifier;
 public class AuditLog {
 
     /**
-     * Writes {@code event} to the activity_log table (best-effort, never throws) and
-     * fans it out asynchronously to any registered {@link AuditLogSinkProvider} plugins.
+     * Writes {@code event} to the activity_log table (best-effort, never throws).
      */
     public static void emit(Main main, Storage storage, TenantIdentifier tenantIdentifier, AuditLogEvent event) {
         if (storage instanceof ActivityLogStorage) {
@@ -37,11 +36,6 @@ public class AuditLog {
                 Logging.error(main, tenantIdentifier,
                         "Failed to write audit log entry [" + event.eventType + "]: " + e.getMessage(), false);
             }
-        }
-
-        AuditLogSinkProvider sinkProvider = AuditLogSinkProvider.getInstance(main);
-        if (sinkProvider != null) {
-            sinkProvider.publishEvent(event);
         }
     }
 }
