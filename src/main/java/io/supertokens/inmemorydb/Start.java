@@ -4330,4 +4330,10 @@ public class Start
             throw new StorageQueryException(e);
         }
     }
+
+    @Override
+    public void maintainActivityLogPartitions() {
+        // The in-memory (SQLite) store keeps activity_log as a plain, unpartitioned table, so there
+        // is nothing to maintain.
+    }
 }

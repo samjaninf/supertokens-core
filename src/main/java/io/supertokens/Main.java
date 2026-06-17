@@ -22,6 +22,7 @@ import io.supertokens.config.CoreConfig;
 import io.supertokens.cronjobs.Cronjobs;
 import io.supertokens.cronjobs.backfill.BackfillReservationTables;
 import io.supertokens.cronjobs.bulkimport.ProcessBulkImportUsers;
+import io.supertokens.cronjobs.cleanupActivityLogPartitions.CleanupActivityLogPartitions;
 import io.supertokens.cronjobs.cleanupOAuthSessionsAndChallenges.CleanupOAuthSessionsAndChallenges;
 import io.supertokens.cronjobs.deleteExpiredSAMLData.DeleteExpiredSAMLData;
 import io.supertokens.cronjobs.cleanupWebauthnExpiredData.CleanUpWebauthNExpiredDataCron;
@@ -286,6 +287,9 @@ public class Main {
         Cronjobs.addCronjob(this, CleanupOAuthSessionsAndChallenges.init(this, uniqueUserPoolIdsTenants));
 
         Cronjobs.addCronjob(this, CleanUpWebauthNExpiredDataCron.init(this, uniqueUserPoolIdsTenants));
+
+        // pre-creates upcoming day partitions for the activity_log table and drops old ones
+        Cronjobs.addCronjob(this, CleanupActivityLogPartitions.init(this, uniqueUserPoolIdsTenants));
 
         // starts the DeadlockLogger if
         if (Config.getBaseConfig(this).isDeadlockLoggerEnabled()) {
