@@ -121,7 +121,7 @@ jobs:
               --repo supertokens/supertokens-plugin-interface \
               --title "v${{ inputs.plugin-interface-version }}" \
               --generate-notes \
-              ${{ inputs.is-latest-release && '--latest' || '--latest=false' }}
+              ${{ inputs.is-latest-release == true && '--latest' || '--latest=false' }}
           fi
 
       - name: Tag postgresql-plugin
@@ -150,7 +150,7 @@ jobs:
               --repo supertokens/supertokens-postgresql-plugin \
               --title "v${{ inputs.postgresql-plugin-version }}" \
               --generate-notes \
-              ${{ inputs.is-latest-release && '--latest' || '--latest=false' }}
+              ${{ inputs.is-latest-release == true && '--latest' || '--latest=false' }}
           fi
 
       - name: Tag core
@@ -179,5 +179,5 @@ jobs:
               --repo supertokens/supertokens-core \
               --title "v${{ inputs.core-version }}" \
               --generate-notes \
-              ${{ inputs.is-latest-release && '--latest' || '--latest=false' }}
+              ${{ inputs.is-latest-release == true && '--latest' || '--latest=false' }}
           fi
