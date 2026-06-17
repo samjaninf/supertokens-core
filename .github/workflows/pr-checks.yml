@@ -14,7 +14,9 @@ jobs:
       with:
         validateSingleCommit: true
   changelog:
-    name: Enforce Changelog
+    # The check-run name must stay "changelog" — it is the required status context in branch
+    # protection (matched by name). Renaming it leaves that context permanently "Expected".
+    name: changelog
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
