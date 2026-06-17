@@ -135,7 +135,10 @@ public class TestAppData {
                 "recipe_user_tenants", "recipe_user_account_infos", "primary_user_tenants",
                 // Legacy tables that are not populated in MIGRATED mode.
                 "all_auth_recipe_users", "emailpassword_user_to_tenant", "thirdparty_user_to_tenant",
-                "passwordless_user_to_tenant", "webauthn_user_to_tenant"};
+                "passwordless_user_to_tenant", "webauthn_user_to_tenant",
+                // Append-only audit log: intentionally has no app_id->apps FK cascade, so its rows
+                // are retained after an app is deleted rather than purged with the rest of the data.
+                "activity_log"};
 
         TenantIdentifier app = new TenantIdentifier(null, "a1", null);
 
