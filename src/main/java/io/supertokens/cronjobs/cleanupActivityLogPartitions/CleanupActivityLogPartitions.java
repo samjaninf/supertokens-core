@@ -26,8 +26,8 @@ import io.supertokens.pluginInterface.multitenancy.TenantIdentifier;
 import java.util.List;
 
 /**
- * Maintains the daily, time-based partitioning of the activity_log table: pre-creates the partitions
- * for upcoming days and drops partitions whose data is entirely older than the retention window.
+ * Maintains the monthly, time-based partitioning of the activity_log table: pre-creates the partitions
+ * for upcoming months and drops partitions whose entire month is older than the retention window.
  * Runs once per unique storage; a no-op for storages that don't partition (e.g. the in-memory store).
  */
 public class CleanupActivityLogPartitions extends CronTask {

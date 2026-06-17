@@ -7,6 +7,34 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [12.0.3]
+
+- Adds an append-only `activity_log` audit log; a `user_last_active` event is now written to it whenever a user's last-active timestamp is updated
+- Adds the `CleanupActivityLogPartitions` cron that maintains the `activity_log` month-partitions (pre-creates upcoming months, drops a partition once its whole month is older than 31 days)
+- Removes the external `AuditLogSink` plugin mechanism
+
+### Migration
+
+```sql
+CREATE TABLE IF NOT EXISTS activity_log (
+    id BIGINT GENERATED ALWAYS AS IDENTITY,
+    app_id VARCHAR(64) NOT NULL DEFAULT 'public',
+    tenant_id VARCHAR(64) NOT NULL DEFAULT 'public',
+    recipe_user_id VARCHAR(128),
+    primary_or_recipe_user_id VARCHAR(128),
+    event_type VARCHAR(64) NOT NULL,
+    status VARCHAR(128),
+    auth_principal VARCHAR(256),
+    identifier VARCHAR(256),
+    created_at BIGINT NOT NULL,
+    payload TEXT
+) PARTITION BY RANGE (created_at);
+
+CREATE TABLE IF NOT EXISTS activity_log_default PARTITION OF activity_log DEFAULT;
+
+CREATE INDEX IF NOT EXISTS activity_log_created_at_brin ON activity_log USING brin (created_at);
+```
+
 ## [12.0.2]
 
 - Fix: Protection against SAML XML signature wrapping (XSW) attack.
@@ -34,6 +62,64 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Migration
 
 See [SCHEMA-REWORK.md](SCHEMA-REWORK.md) for the operator runbook.
+
+```sql
+ALTER TABLE app_id_to_user_id ADD COLUMN IF NOT EXISTS time_joined BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE app_id_to_user_id ADD COLUMN IF NOT EXISTS primary_or_recipe_user_time_joined BIGINT NOT NULL DEFAULT 0;
+
+ALTER TABLE app_id_to_user_id DROP CONSTRAINT IF EXISTS app_id_to_user_id_primary_or_recipe_user_id_fkey;
+ALTER TABLE app_id_to_user_id ADD CONSTRAINT app_id_to_user_id_primary_or_recipe_user_id_fkey
+    FOREIGN KEY (app_id, primary_or_recipe_user_id) REFERENCES app_id_to_user_id (app_id, user_id) ON DELETE CASCADE ON UPDATE CASCADE;
+
+CREATE INDEX IF NOT EXISTS app_id_to_user_id_pagination_index1 ON app_id_to_user_id (app_id, primary_or_recipe_user_time_joined DESC, primary_or_recipe_user_id DESC);
+CREATE INDEX IF NOT EXISTS app_id_to_user_id_pagination_index2 ON app_id_to_user_id (app_id, primary_or_recipe_user_time_joined ASC, primary_or_recipe_user_id DESC);
+CREATE INDEX IF NOT EXISTS app_id_to_user_id_pagination_index3 ON app_id_to_user_id (recipe_id, app_id, primary_or_recipe_user_time_joined DESC, primary_or_recipe_user_id DESC);
+CREATE INDEX IF NOT EXISTS app_id_to_user_id_pagination_index4 ON app_id_to_user_id (recipe_id, app_id, primary_or_recipe_user_time_joined ASC, primary_or_recipe_user_id DESC);
+
+CREATE TABLE IF NOT EXISTS recipe_user_account_infos (
+    app_id VARCHAR(64) NOT NULL,
+    recipe_user_id CHAR(36) NOT NULL,
+    recipe_id VARCHAR(128) NOT NULL,
+    account_info_type VARCHAR(8) NOT NULL,
+    account_info_value TEXT NOT NULL,
+    third_party_id VARCHAR(28),
+    third_party_user_id VARCHAR(256),
+    primary_user_id CHAR(36) NULL,
+    CONSTRAINT recipe_user_account_infos_pkey PRIMARY KEY (app_id, recipe_id, recipe_user_id, account_info_type, third_party_id, third_party_user_id),
+    CONSTRAINT recipe_user_account_infos_tenant_id_fkey FOREIGN KEY(app_id) REFERENCES apps (app_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_recipe_user_account_infos_app_recipe_user ON recipe_user_account_infos (app_id, recipe_user_id);
+
+CREATE TABLE IF NOT EXISTS recipe_user_tenants (
+    app_id VARCHAR(64) NOT NULL,
+    recipe_user_id CHAR(36) NOT NULL,
+    tenant_id VARCHAR(64) NOT NULL,
+    recipe_id VARCHAR(128) NOT NULL,
+    account_info_type VARCHAR(8) NOT NULL,
+    account_info_value TEXT NOT NULL,
+    third_party_id VARCHAR(28),
+    third_party_user_id VARCHAR(256),
+    CONSTRAINT recipe_user_tenants_pkey PRIMARY KEY (app_id, tenant_id, recipe_id, account_info_type, third_party_id, third_party_user_id, account_info_value),
+    CONSTRAINT recipe_user_tenants_tenant_id_fkey FOREIGN KEY(app_id, tenant_id) REFERENCES tenants (app_id, tenant_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_recipe_user_tenants_tenant ON recipe_user_tenants (app_id, tenant_id);
+CREATE INDEX IF NOT EXISTS idx_recipe_user_tenants_recipe_user_id ON recipe_user_tenants (app_id, recipe_user_id);
+CREATE INDEX IF NOT EXISTS idx_recipe_user_tenants_account_info ON recipe_user_tenants (app_id, tenant_id, account_info_type, account_info_value);
+
+CREATE TABLE IF NOT EXISTS primary_user_tenants (
+    app_id VARCHAR(64) NOT NULL,
+    tenant_id VARCHAR(64) NOT NULL,
+    account_info_type VARCHAR(8) NOT NULL,
+    account_info_value TEXT NOT NULL,
+    primary_user_id CHAR(36) NOT NULL,
+    CONSTRAINT primary_user_tenants_pkey PRIMARY KEY (app_id, tenant_id, account_info_type, account_info_value),
+    CONSTRAINT primary_user_tenants_app_id_fkey FOREIGN KEY(app_id, tenant_id) REFERENCES tenants (app_id, tenant_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_primary_user_tenants_primary ON primary_user_tenants (primary_user_id);
+```
 
 ## [11.4.4]
 

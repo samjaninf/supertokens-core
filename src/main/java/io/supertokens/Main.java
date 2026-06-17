@@ -288,7 +288,7 @@ public class Main {
 
         Cronjobs.addCronjob(this, CleanUpWebauthNExpiredDataCron.init(this, uniqueUserPoolIdsTenants));
 
-        // pre-creates upcoming day partitions for the activity_log table and drops old ones
+        // pre-creates upcoming month partitions for the activity_log table and drops old ones
         Cronjobs.addCronjob(this, CleanupActivityLogPartitions.init(this, uniqueUserPoolIdsTenants));
 
         // starts the DeadlockLogger if
