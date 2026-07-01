@@ -25,6 +25,7 @@ import io.opentelemetry.api.logs.LogRecordBuilder;
 import io.opentelemetry.api.logs.Severity;
 import io.opentelemetry.api.trace.TracerProvider;
 import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
+import io.opentelemetry.context.Context;
 import io.opentelemetry.context.propagation.ContextPropagators;
 import io.opentelemetry.exporter.otlp.logs.OtlpGrpcLogRecordExporter;
 import io.opentelemetry.exporter.otlp.trace.OtlpGrpcSpanExporter;
@@ -93,6 +94,11 @@ public class TelemetryProvider extends ResourceDistributor.SingletonResource imp
         LogRecordBuilder record = openTelemetry.getLogsBridge()
                 .get("core-logger")
                 .logRecordBuilder()
+                // Stamp the record with the active span's trace_id + span_id (if any) so
+                // an error log is pivotable to its trace during incident investigation.
+                // No active span (startup, background threads) -> no trace context, which
+                // is correct.
+                .setContext(Context.current())
                 .setTimestamp(System.currentTimeMillis(), TimeUnit.MILLISECONDS)
                 .setSeverity(toSeverity(logLevel))   // Axiom highlights by severity
                 .setSeverityText(logLevel)
