@@ -16,6 +16,8 @@
 
 package io.supertokens.telemetry;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.AttributeKey;
@@ -41,6 +43,10 @@ import io.supertokens.pluginInterface.multitenancy.exceptions.TenantOrAppNotFoun
 import io.supertokens.pluginInterface.opentelemetry.OtelProvider;
 import org.jetbrains.annotations.TestOnly;
 
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -145,16 +151,17 @@ public class TelemetryProvider extends ResourceDistributor.SingletonResource imp
             return null;
         }
 
+        String serviceName = resolveServiceName();
         Logging.info(main, TenantIdentifier.BASE_TENANT,
-                "OpenTelemetry telemetry enabled: exporting spans and logs to " + collectorUri, true);
+                "OpenTelemetry telemetry enabled: exporting spans and logs to " + collectorUri
+                        + " as service.name=" + serviceName, true);
 
         if (getInstance(main) != null && getInstance(main).openTelemetry != null) {
             return getInstance(main).openTelemetry; // already initialized
         }
 
-
         Resource resource = Resource.getDefault().toBuilder()
-                .put(SERVICE_NAME, "supertokens-core")
+                .put(SERVICE_NAME, serviceName)
                 .build();
 
         SdkTracerProvider sdkTracerProvider =
@@ -185,6 +192,48 @@ public class TelemetryProvider extends ResourceDistributor.SingletonResource imp
         // Add hook to close SDK, which flushes logs
         Runtime.getRuntime().addShutdownHook(new Thread(sdk::close));
         return sdk;
+    }
+
+    /**
+     * Resolves the OTel service.name. Precedence:
+     *   1. OTEL_SERVICE_NAME env var (explicit override),
+     *   2. the ECS service name from the task metadata endpoint (v4) -- present when
+     *      the task belongs to a service (ECS agent >= 1.63.1),
+     *   3. "supertokens-core" (local/dev, or a task not managed by a service).
+     * The collector's resourcedetection ecs detector does NOT expose the service
+     * name, so we read it here and put it on the Resource shared by traces and logs.
+     */
+    private static String resolveServiceName() {
+        String explicit = System.getenv("OTEL_SERVICE_NAME");
+        if (explicit != null && !explicit.isEmpty()) {
+            return explicit;
+        }
+
+        String metadataUri = System.getenv("ECS_CONTAINER_METADATA_URI_V4");
+        if (metadataUri != null && !metadataUri.isEmpty()) {
+            try {
+                HttpURLConnection conn =
+                        (HttpURLConnection) URI.create(metadataUri + "/task").toURL().openConnection();
+                conn.setConnectTimeout(2000);
+                conn.setReadTimeout(2000);
+                try (InputStream in = conn.getInputStream()) {
+                    String body = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                    JsonObject task = JsonParser.parseString(body).getAsJsonObject();
+                    if (task.has("ServiceName") && !task.get("ServiceName").isJsonNull()) {
+                        String svc = task.get("ServiceName").getAsString();
+                        if (svc != null && !svc.isEmpty()) {
+                            return svc;
+                        }
+                    }
+                } finally {
+                    conn.disconnect();
+                }
+            } catch (Exception ignored) {
+                // ECS metadata unavailable, unreachable, or task not in a service -- use the default.
+            }
+        }
+
+        return "supertokens-core";
     }
 
     @TestOnly
