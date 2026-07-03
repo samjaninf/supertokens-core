@@ -7,6 +7,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [12.0.5]
+
+- Fixes otel init without java agent (with the fresh otel sdk)
+
 ## [12.0.4]
 
 - Fixes an issue with deleting user-id mapped users
