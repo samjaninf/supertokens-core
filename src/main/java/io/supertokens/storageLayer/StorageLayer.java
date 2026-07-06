@@ -53,7 +53,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-@WithinOtelSpan
+
 public class StorageLayer extends ResourceDistributor.SingletonResource {
 
     public static final String RESOURCE_KEY = "io.supertokens.storageLayer.StorageLayer";
@@ -104,6 +104,7 @@ public class StorageLayer extends ResourceDistributor.SingletonResource {
         storageInstanceForEnv.updateConfigJsonFromEnv(configJson);
     }
 
+    @WithinOtelSpan
     private static Storage getNewInstance(Main main, JsonObject config, TenantIdentifier tenantIdentifier, boolean doNotLog, boolean isBulkImportProxy) throws InvalidConfigException {
         Storage result;
         if (StorageLayer.ucl == null) {
@@ -442,7 +443,6 @@ public class StorageLayer extends ResourceDistributor.SingletonResource {
         }
     }
 
-    @WithinOtelSpan
     public static Storage getStorage(TenantIdentifier tenantIdentifier, Main main)
             throws TenantOrAppNotFoundException {
         return getInstance(tenantIdentifier, main).storage;

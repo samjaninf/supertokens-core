@@ -6,7 +6,10 @@ import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.exceptions.JWTVerificationException;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.auth0.jwt.interfaces.RSAKeyProvider;
-import com.google.gson.*;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 import io.supertokens.Main;
 import io.supertokens.ProcessState;
 import io.supertokens.cronjobs.Cronjobs;
@@ -20,11 +23,7 @@ import io.supertokens.httpRequest.HttpRequest;
 import io.supertokens.httpRequest.HttpResponseException;
 import io.supertokens.multitenancy.Multitenancy;
 import io.supertokens.output.Logging;
-import io.supertokens.pluginInterface.ActiveUsersStorage;
-import io.supertokens.pluginInterface.KeyValueInfo;
-import io.supertokens.pluginInterface.STORAGE_TYPE;
-import io.supertokens.pluginInterface.Storage;
-import io.supertokens.pluginInterface.StorageUtils;
+import io.supertokens.pluginInterface.*;
 import io.supertokens.pluginInterface.authRecipe.AuthRecipeStorage;
 import io.supertokens.pluginInterface.dashboard.sqlStorage.DashboardSQLStorage;
 import io.supertokens.pluginInterface.exceptions.StorageQueryException;
@@ -570,7 +569,8 @@ public class EEFeatureFlag implements io.supertokens.featureflag.EEFeatureFlagIn
                 });
                 return enabledFeatures.toArray(EE_FEATURES[]::new);
             } else if (licenseCheckResponse.get("status").getAsString().equalsIgnoreCase("INVALID_LICENSE_KEY")) {
-                Logging.debug(main, appIdentifier.getAsPublicTenantIdentifier(), "Invalid license key: " + licenseKey);
+                //Logging.debug(main, appIdentifier.getAsPublicTenantIdentifier(), "Invalid license key: " +
+                // licenseKey);
                 ProcessState.getInstance(main).addState(ProcessState.PROCESS_STATE.INVALID_LICENSE_KEY, null);
                 throw new InvalidLicenseKeyException();
             }
@@ -586,8 +586,8 @@ public class EEFeatureFlag implements io.supertokens.featureflag.EEFeatureFlagIn
             throws StorageQueryException, TenantOrAppNotFoundException {
         JsonArray json = new JsonArray();
         Arrays.stream(features).forEach(ee_features -> json.add(new JsonPrimitive(ee_features.toString())));
-        Logging.debug(main, appIdentifier.getAsPublicTenantIdentifier(),
-                "Saving new feature flag in database: " + json);
+        //Logging.debug(main, appIdentifier.getAsPublicTenantIdentifier(),
+        //      "Saving new feature flag in database: " + json);
         StorageLayer.getStorage(this.appIdentifier.getAsPublicTenantIdentifier(), main)
                 .setKeyValue(this.appIdentifier.getAsPublicTenantIdentifier(), FEATURE_FLAG_KEY_IN_DB,
                         new KeyValueInfo(json.toString()));
@@ -600,11 +600,11 @@ public class EEFeatureFlag implements io.supertokens.featureflag.EEFeatureFlagIn
         if (this.enabledFeaturesValueReadFromDbTime == -1
                 || (System.currentTimeMillis()
                 - this.enabledFeaturesValueReadFromDbTime > INTERVAL_BETWEEN_DB_READS)) {
-            Logging.debug(main, appIdentifier.getAsPublicTenantIdentifier(), "Reading feature flag from database");
+            //Logging.debug(main, appIdentifier.getAsPublicTenantIdentifier(), "Reading feature flag from database");
             KeyValueInfo keyValueInfo = StorageLayer.getStorage(this.appIdentifier.getAsPublicTenantIdentifier(), main)
                     .getKeyValue(this.appIdentifier.getAsPublicTenantIdentifier(), FEATURE_FLAG_KEY_IN_DB);
             if (keyValueInfo == null) {
-                Logging.debug(main, appIdentifier.getAsPublicTenantIdentifier(), "No feature flag set in db");
+                //Logging.debug(main, appIdentifier.getAsPublicTenantIdentifier(), "No feature flag set in db");
                 return new EE_FEATURES[]{};
             }
             JsonArray featuresArrayJson = new JsonParser().parse(keyValueInfo.value).getAsJsonArray();
@@ -618,20 +618,20 @@ public class EEFeatureFlag implements io.supertokens.featureflag.EEFeatureFlagIn
             this.enabledFeaturesFromDb = enabledFeatures.toArray(EE_FEATURES[]::new);
             this.enabledFeaturesValueReadFromDbTime = System.currentTimeMillis();
         } else {
-            Logging.debug(main, appIdentifier.getAsPublicTenantIdentifier(), "Returning feature flag from cache");
+            //Logging.debug(main, appIdentifier.getAsPublicTenantIdentifier(), "Returning feature flag from cache");
         }
         return this.enabledFeaturesFromDb;
     }
 
     private void setLicenseKeyInDb(String key) throws StorageQueryException, TenantOrAppNotFoundException {
-        Logging.debug(main, appIdentifier.getAsPublicTenantIdentifier(), "Setting license key in db: " + key);
+        //Logging.debug(main, appIdentifier.getAsPublicTenantIdentifier(), "Setting license key in db: " + key);
         StorageLayer.getStorage(this.appIdentifier.getAsPublicTenantIdentifier(), main)
                 .setKeyValue(this.appIdentifier.getAsPublicTenantIdentifier(), LICENSE_KEY_IN_DB,
                         new KeyValueInfo(key));
     }
 
     private void removeLicenseKeyFromDb() throws StorageQueryException, TenantOrAppNotFoundException {
-        Logging.debug(main, appIdentifier.getAsPublicTenantIdentifier(), "Removing license key from db");
+        //Logging.debug(main, appIdentifier.getAsPublicTenantIdentifier(), "Removing license key from db");
         StorageLayer.getStorage(this.appIdentifier.getAsPublicTenantIdentifier(), main)
                 .setKeyValue(this.appIdentifier.getAsPublicTenantIdentifier(), LICENSE_KEY_IN_DB,
                         new KeyValueInfo(LICENSE_KEY_IN_DB_NOT_PRESENT_VALUE));
@@ -639,14 +639,14 @@ public class EEFeatureFlag implements io.supertokens.featureflag.EEFeatureFlagIn
 
     private String getLicenseKeyInDb(TenantIdentifier tenantIdentifier)
             throws TenantOrAppNotFoundException, StorageQueryException, NoLicenseKeyFoundException {
-        Logging.debug(main, tenantIdentifier, "Attempting to fetch license key from db");
+        //Logging.debug(main, tenantIdentifier, "Attempting to fetch license key from db");
         KeyValueInfo info = StorageLayer.getStorage(tenantIdentifier, main)
                 .getKeyValue(tenantIdentifier, LICENSE_KEY_IN_DB);
         if (info == null || info.value.equals(LICENSE_KEY_IN_DB_NOT_PRESENT_VALUE)) {
-            Logging.debug(main, tenantIdentifier, "No license key found in db");
+            // Logging.debug(main, tenantIdentifier, "No license key found in db");
             throw new NoLicenseKeyFoundException();
         }
-        Logging.debug(main, tenantIdentifier, "Fetched license key from db: " + info.value);
+        //Logging.debug(main, tenantIdentifier, "Fetched license key from db: " + info.value);
         return info.value;
     }
 
