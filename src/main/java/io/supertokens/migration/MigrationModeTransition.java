@@ -36,7 +36,8 @@ import io.supertokens.storageLayer.StorageLayer;
  * <pre>
  *   LEGACY              ↔  DUAL_WRITE_READ_OLD
  *   DUAL_WRITE_READ_OLD ↔  DUAL_WRITE_READ_NEW
- *   DUAL_WRITE_READ_NEW →  MIGRATED            (only when getBackfillPendingUsersCount == 0)
+ *   DUAL_WRITE_READ_NEW →  MIGRATED            (only when getBackfillPendingUsersCount == 0
+ *                                               AND verifyBackfillCompleteness == 0)
  *   MIGRATED                                    (terminal; no outgoing transitions)
  * </pre>
  *
@@ -46,9 +47,9 @@ import io.supertokens.storageLayer.StorageLayer;
  * a {@code MIGRATED} state must drop and re-populate the old tables (out of band) and
  * then return through the chain.
  *
- * <p>The expensive {@code getBackfillPendingUsersCount} probe runs only on
- * transitions whose target is {@code MIGRATED}. All other transitions are validated
- * by enum comparison alone.
+ * <p>The expensive probes ({@code getBackfillPendingUsersCount} and the
+ * {@code verifyBackfillCompleteness} full scan) run only on transitions whose target is
+ * {@code MIGRATED}. All other transitions are validated by enum comparison alone.
  *
  * <p><b>Escape hatches.</b> This validator only runs in the standard multitenancy CRUD
  * path. Operators can bypass it via:
@@ -133,8 +134,9 @@ public class MigrationModeTransition {
     }
 
     /**
-     * Runs the {@code getBackfillPendingUsersCount} probe and rejects the transition
-     * if any user is still pending or if the storage can't be queried.
+     * Runs the {@code getBackfillPendingUsersCount} probe and the
+     * {@code verifyBackfillCompleteness} scan, rejecting the transition if any user is
+     * still pending, any user is missing reservation rows, or the storage can't be queried.
      *
      * <p>Fail-safe-reject on query failure: operator can retry once storage is healthy.
      */
@@ -167,6 +169,28 @@ public class MigrationModeTransition {
             throw new InvalidConfigException(
                     "Cannot transition to MIGRATED: " + pending + " user(s) still need backfilling. " +
                     "Run the backfill (or wait for the cron) until pendingUsers == 0, then retry.");
+        }
+
+        // The pending count only sees users carrying the time_joined = 0 sentinel. A user
+        // whose reservation rows are missing but whose sentinel was never set (e.g. written
+        // by a core that predates the LEGACY-sentinel fix) is invisible to it, and MIGRATED
+        // would strand them: their only account-info rows are in the old tables, which leave
+        // the read path. The completeness scan is the last line of defense against that.
+        int inconsistent;
+        try {
+            inconsistent = ((MigrationBackfillStorage) storage).verifyBackfillCompleteness(appIdentifier);
+        } catch (StorageQueryException e) {
+            throw new InvalidConfigException(
+                    "Cannot transition to MIGRATED: failed to verify backfill completeness — " +
+                    e.getMessage() + ". Retry once storage is healthy.");
+        }
+
+        if (inconsistent > 0) {
+            throw new InvalidConfigException(
+                    "Cannot transition to MIGRATED: " + inconsistent + " inconsistent user(s) exist in the " +
+                    "old tables without reservation rows (GET /migration/backfill/progress?verify=true lists " +
+                    "the count). They would become unreachable once reads leave the old tables. Re-run the " +
+                    "backfill for them, then retry.");
         }
     }
 }

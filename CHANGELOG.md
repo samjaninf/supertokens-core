@@ -7,6 +7,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- The `migration_mode` transition to `MIGRATED` now also requires the backfill completeness scan
+  (`verifyBackfillCompleteness`) to report zero inconsistent users, in addition to `pendingUsers == 0`, so users
+  missing reservation rows can no longer be stranded once reads leave the old tables
+
 ## [12.0.4]
 
 - Fixes an issue with deleting user-id mapped users
