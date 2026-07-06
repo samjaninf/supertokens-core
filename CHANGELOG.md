@@ -7,6 +7,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [12.0.5]
+
+- Fixes otel init without java agent (with the fresh otel sdk)
 - The `migration_mode` transition to `MIGRATED` now also requires the backfill completeness scan
   (`verifyBackfillCompleteness`) to report zero inconsistent users, in addition to `pendingUsers == 0`, so users
   missing reservation rows can no longer be stranded once reads leave the old tables

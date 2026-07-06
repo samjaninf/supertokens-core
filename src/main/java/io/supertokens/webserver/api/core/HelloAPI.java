@@ -21,7 +21,6 @@ import io.supertokens.pluginInterface.Storage;
 import io.supertokens.pluginInterface.exceptions.StorageQueryException;
 import io.supertokens.pluginInterface.multitenancy.AppIdentifier;
 import io.supertokens.pluginInterface.multitenancy.exceptions.TenantOrAppNotFoundException;
-import io.supertokens.pluginInterface.opentelemetry.WithinOtelSpan;
 import io.supertokens.storageLayer.StorageLayer;
 import io.supertokens.utils.RateLimiter;
 import io.supertokens.webserver.WebserverAPI;
@@ -33,7 +32,7 @@ import java.io.IOException;
 
 // the point of this API is only to test that the server is up and running.
 
-@WithinOtelSpan
+//@WithinOtelSpan
 public class HelloAPI extends WebserverAPI {
 
     private static final long serialVersionUID = 1L;

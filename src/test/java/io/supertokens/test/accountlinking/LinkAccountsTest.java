@@ -29,8 +29,10 @@ import io.supertokens.featureflag.FeatureFlagTestContent;
 import io.supertokens.featureflag.exceptions.FeatureNotEnabledException;
 import io.supertokens.multitenancy.Multitenancy;
 import io.supertokens.passwordless.Passwordless;
+import io.supertokens.pluginInterface.MigrationMode;
 import io.supertokens.pluginInterface.STORAGE_TYPE;
 import io.supertokens.pluginInterface.Storage;
+import io.supertokens.pluginInterface.migration.MigrationBackfillStorage;
 import io.supertokens.pluginInterface.authRecipe.AuthRecipeUserInfo;
 import io.supertokens.pluginInterface.authRecipe.exceptions.UnknownUserIdException;
 import io.supertokens.pluginInterface.multitenancy.*;
@@ -164,6 +166,89 @@ public class LinkAccountsTest {
         // cause linkAccounts revokes sessions for the recipe user ID
         sessions = Session.getAllNonExpiredSessionHandlesForUser(process.getProcess(), user2.getSupertokensUserId());
         assert (sessions.length == 0);
+
+        process.kill();
+        assertNotNull(process.checkOrWaitForEvent(ProcessState.PROCESS_STATE.STOPPED));
+    }
+
+    @Test
+    public void linkAccountSuccessWithSameEmailWherePrimaryUserIsCreatedFirstInLegacyMigrationMode()
+            throws Exception {
+        linkAccountSuccessWithSameEmailWherePrimaryUserIsCreatedFirstWithMigrationMode("LEGACY");
+    }
+
+    @Test
+    public void linkAccountSuccessWithSameEmailWherePrimaryUserIsCreatedFirstInMigratedMigrationMode()
+            throws Exception {
+        linkAccountSuccessWithSameEmailWherePrimaryUserIsCreatedFirstWithMigrationMode("MIGRATED");
+    }
+
+    private void linkAccountSuccessWithSameEmailWherePrimaryUserIsCreatedFirstWithMigrationMode(String migrationMode)
+            throws Exception {
+        Utils.setValueInConfig("migration_mode", migrationMode);
+        String[] args = {"../"};
+        TestingProcessManager.TestingProcess process = TestingProcessManager.startIsolatedProcess(args, false);
+        FeatureFlagTestContent.getInstance(process.getProcess())
+                .setKeyValue(FeatureFlagTestContent.ENABLED_FEATURES, new EE_FEATURES[]{
+                        EE_FEATURES.ACCOUNT_LINKING, EE_FEATURES.MULTI_TENANCY});
+        process.startProcess();
+        assertNotNull(process.checkOrWaitForEvent(ProcessState.PROCESS_STATE.STARTED));
+
+        if (StorageLayer.getStorage(process.getProcess()).getType() != STORAGE_TYPE.SQL) {
+            return;
+        }
+
+        // make sure the config override was actually picked up, otherwise both variants
+        // of this test would silently run in the same mode
+        assertEquals(MigrationMode.valueOf(migrationMode),
+                ((MigrationBackfillStorage) StorageLayer.getStorage(process.getProcess())).getMigrationMode());
+
+        AuthRecipeUserInfo user = EmailPassword.signUp(process.getProcess(), "test@example.com", "password");
+        assert (!user.isPrimaryUser);
+
+        AuthRecipe.createPrimaryUser(process.getProcess(), user.getSupertokensUserId());
+
+        Thread.sleep(50);
+
+        ThirdParty.SignInUpResponse signInUpResponse = ThirdParty.signInUp(process.getProcess(), "google",
+                "user-google",
+                "test@example.com");
+        AuthRecipeUserInfo user2 = signInUpResponse.user;
+        assert (!user2.isPrimaryUser);
+
+        Session.createNewSession(process.getProcess(), user2.getSupertokensUserId(), new JsonObject(), new JsonObject());
+        String[] sessions = Session.getAllNonExpiredSessionHandlesForUser(process.getProcess(), user2.getSupertokensUserId());
+        assert (sessions.length == 1);
+
+        boolean wasAlreadyLinked = AuthRecipe.linkAccounts(process.getProcess(), user2.getSupertokensUserId(),
+                user.getSupertokensUserId()).wasAlreadyLinked;
+        assert (!wasAlreadyLinked);
+
+        AuthRecipeUserInfo refetchUser2 = AuthRecipe.getUserById(process.getProcess(), user2.getSupertokensUserId());
+        AuthRecipeUserInfo refetchUser = AuthRecipe.getUserById(process.getProcess(), user.getSupertokensUserId());
+        assert (refetchUser2.equals(refetchUser));
+        assert (refetchUser2.loginMethods.length == 2);
+        assert (refetchUser.loginMethods[0].equals(user.loginMethods[0]));
+        assert (refetchUser.loginMethods[1].equals(user2.loginMethods[0]));
+        assert (refetchUser.tenantIds.size() == 1);
+        assert (refetchUser.isPrimaryUser);
+        assert (refetchUser.getSupertokensUserId().equals(user.getSupertokensUserId()));
+
+        // cause linkAccounts revokes sessions for the recipe user ID
+        sessions = Session.getAllNonExpiredSessionHandlesForUser(process.getProcess(), user2.getSupertokensUserId());
+        assert (sessions.length == 0);
+
+        Session.createNewSession(process.getProcess(), user2.getSupertokensUserId(), new JsonObject(), new JsonObject());
+        sessions = Session.getAllNonExpiredSessionHandlesForUser(process.getProcess(), user2.getSupertokensUserId());
+        assert (sessions.length == 1);
+
+        wasAlreadyLinked = AuthRecipe.linkAccounts(process.getProcess(), user2.getSupertokensUserId(),
+                user.getSupertokensUserId()).wasAlreadyLinked;
+        assert (wasAlreadyLinked);
+
+        // linking an already linked user is a no-op, so sessions must not be revoked again
+        sessions = Session.getAllNonExpiredSessionHandlesForUser(process.getProcess(), user2.getSupertokensUserId());
+        assert (sessions.length == 1);
 
         process.kill();
         assertNotNull(process.checkOrWaitForEvent(ProcessState.PROCESS_STATE.STOPPED));
