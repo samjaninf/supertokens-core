@@ -23,7 +23,7 @@ import java.util.Objects;
 
 import javax.xml.namespace.QName;
 
-import net.shibboleth.utilities.java.support.xml.SerializeSupport;
+import net.shibboleth.shared.xml.SerializeSupport;
 
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.BasicConstraints;
@@ -183,7 +183,7 @@ public class MockSAML {
 
         // NameIDFormat: emailAddress
         NameIDFormat nameIdFormat = build(NameIDFormat.DEFAULT_ELEMENT_NAME);
-        nameIdFormat.setFormat("urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress");
+        nameIdFormat.setURI("urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress");
         idp.getNameIDFormats().add(nameIdFormat);
 
         entityDescriptor.getRoleDescriptors().add(idp);

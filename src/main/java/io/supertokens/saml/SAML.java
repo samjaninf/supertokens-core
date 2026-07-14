@@ -104,8 +104,8 @@ import io.supertokens.saml.exceptions.InvalidRelayStateException;
 import io.supertokens.saml.exceptions.MalformedSAMLMetadataXMLException;
 import io.supertokens.saml.exceptions.SAMLRequestSigningException;
 import io.supertokens.saml.exceptions.SAMLResponseVerificationFailedException;
-import net.shibboleth.utilities.java.support.xml.SerializeSupport;
-import net.shibboleth.utilities.java.support.xml.XMLParserException;
+import net.shibboleth.shared.xml.SerializeSupport;
+import net.shibboleth.shared.xml.XMLParserException;
 
 public class SAML {
     public static void checkForSAMLFeature(AppIdentifier appIdentifier, Main main)

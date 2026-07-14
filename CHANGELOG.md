@@ -7,6 +7,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [12.0.6]
+
+- Upgrade dependencies to go beyond known CVE's.
 - Test-only: the migration-mode variants of the account-linking test skip the in-memory storage, which does not
   honor `migration_mode` from config (hardcoded `MIGRATED`); mode-dependent coverage for that flow runs in the
   postgresql matrix
