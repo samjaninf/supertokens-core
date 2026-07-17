@@ -1621,7 +1621,7 @@ try {
                 + " FROM " + Config.getConfig(start).getRecipeUserTenantsTable() + " rut"
                 + " JOIN " + Config.getConfig(start).getAppIdToUserIdTable() + " auid"
                 + " ON rut.app_id = auid.app_id AND rut.recipe_user_id = auid.user_id"
-                + " WHERE rut.app_id = ? AND rut.tenant_id = ?"
+                + " WHERE rut.app_id = ? AND rut.tenant_id = ? AND rut.third_party_id = ''"
                 + " AND rut.account_info_type = ? AND rut.account_info_value = ?"
                 + " LIMIT 1";
 

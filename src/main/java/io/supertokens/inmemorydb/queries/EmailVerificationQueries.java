@@ -123,11 +123,14 @@ public class EmailVerificationQueries {
         }
 
         List<PreparedStatementValueSetter> setters = new ArrayList<>();
+        // Despite the parameter name, the map is populated as userId -> email
+        // (see BulkImport.collectVerifiedEmailAddressesByUserIds), so the key is
+        // the user_id and the value is the email — same as the postgres impl.
         for (Map.Entry<String, String> emailToUser : emailToUserIds.entrySet()) {
             setters.add(pst -> {
                 pst.setString(1, appIdentifier.getAppId());
-                pst.setString(2, emailToUser.getValue());
-                pst.setString(3, emailToUser.getKey());
+                pst.setString(2, emailToUser.getKey());
+                pst.setString(3, emailToUser.getValue());
             });
         }
 

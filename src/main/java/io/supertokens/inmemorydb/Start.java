@@ -3281,18 +3281,29 @@ public class Start
                 throw new UnknownUserIdException();
             }
 
+            LockedUser recipeUser = lockedUsers.getRecipeUser();
+            LockedUser primaryUser = lockedUsers.getPrimaryUser();
+
+            if (recipeUser.isLinked() && recipeUser.getPrimaryUserId().equals(primaryUser.getPrimaryUserId())) {
+                return false;
+            }
+
             MigrationMode mode = Config.getConfig(this).getMigrationMode();
             // Use the LockedUser version of reserveAccountInfoForLinking_Transaction
             boolean didLinkAccounts;
             if (mode.writesToNewTables()) {
                 didLinkAccounts = AccountInfoQueries.reserveAccountInfoForLinking_Transaction(
-                        this, sqlCon, appIdentifier, lockedUsers.getRecipeUser(), lockedUsers.getPrimaryUser());
+                        this, sqlCon, appIdentifier, recipeUser, primaryUser);
             } else {
                 // In LEGACY mode, skip new table writes; the old path handles conflicts
                 didLinkAccounts = true;
             }
             if (didLinkAccounts) {
-                GeneralQueries.linkAccounts_Transaction(this, sqlCon, appIdentifier, recipeUserId, primaryUserId);
+                // Use the resolved primary user ID from LockedUserPair, not the raw parameter
+                // (the raw parameter might be a recipe user ID of an already-linked user)
+                String resolvedPrimaryUserId = primaryUser.getPrimaryUserId() != null
+                        ? primaryUser.getPrimaryUserId() : primaryUserId;
+                GeneralQueries.linkAccounts_Transaction(this, sqlCon, appIdentifier, recipeUserId, resolvedPrimaryUserId);
             }
             return didLinkAccounts;
         } catch (SQLException e) {
